@@ -8,7 +8,9 @@ You've decided your idea is a Squad Extension (Layer 2). Now build one in five m
 
 ## What is an extension?
 
-An extension is a reusable collection of skills, ceremonies, and directives that any team can install. It lives outside Squad core, packaged as a GitHub repository or marketplace plugin. Extensions let you codify workflows (the client-delivery pattern), domain expertise (Azure deployment strategies), or testing ceremonies that other teams benefit from.
+An extension is a reusable collection of Squad agents, knowledge, workflows, ceremonies, and directives that any team can install. It lives outside Squad core, packaged as a GitHub repository or marketplace plugin. Extensions let you codify workflows (the client-delivery pattern), domain expertise (Azure deployment strategies), or testing ceremonies that other teams benefit from.
+
+If your extension needs a Copilot plugin, declare it as a dependency in the manifest. If it points to an external CLI, package, or MCP server, record that in `repository`, `upstream`, or `mcp` metadata. Squad does not install packages, run external commands, start MCP servers, or manage Copilot plugins.
 
 ---
 
@@ -17,9 +19,10 @@ An extension is a reusable collection of skills, ceremonies, and directives that
 ```
 my-extension/
 ├── plugin.manifest.json
-├── skills/
-│   └── example-skill/
-│       └── SKILL.md
+├── knowledge/
+│   └── example-guidance.md
+├── workflows/
+│   └── review-workflow.md
 ├── ceremonies/
 │   └── CEREMONY.md
 └── README.md
@@ -37,12 +40,12 @@ cd my-extension
 git init
 ```
 
-**Step 2: Add a skill**
+**Step 2: Add knowledge**
 
-Create `skills/example-skill/SKILL.md`:
+Create `knowledge/example-guidance.md`:
 
 ```markdown
-# Example Skill
+# Example Guidance
 
 **When to use:** You need to do X.
 
@@ -75,13 +78,34 @@ Create `plugin.manifest.json`:
   "license": "MIT",
   "squad": ">=0.9.1",
   "components": {
-    "skills": ["example-skill"]
+    "knowledge": ["example-guidance"],
+    "workflows": ["review-workflow"]
+  },
+  "copilot": {
+    "requires": [
+      {
+        "id": "github/copilot-plugin-example",
+        "version": ">=1.0.0",
+        "optional": true,
+        "reason": "Used by Copilot when installed separately."
+      }
+    ]
+  },
+  "repository": {
+    "type": "github",
+    "url": "https://github.com/example/my-extension"
+  },
+  "upstream": {
+    "package": "example-tool",
+    "registry": "pypi",
+    "installCommand": "pip install example-tool",
+    "docs": "https://github.com/example/my-extension"
   },
   "files": [
     {
-      "source": "skills/example-skill/SKILL.md",
-      "target": "skills/example-skill/SKILL.md",
-      "type": "skill"
+      "source": "knowledge/example-guidance.md",
+      "target": "knowledge/example-guidance.md",
+      "type": "knowledge"
     }
   ]
 }
@@ -107,6 +131,7 @@ squad plugin list --json
 ```
 
 Install records the plugin disabled by default. Enable activates the roles declared in `components`.
+Copilot dependencies are surfaced to the user but must be installed through Copilot's own plugin flow. External package and MCP metadata is surfaced as install guidance only.
 
 **Step 7: Write the README**
 
@@ -125,13 +150,13 @@ squad plugin enable my-extension
 ## What's Inside
 
 - **discovery-interview** skill — clarify requirements
-- **evidence-bundler** skill — collect test results
+- **evidence-bundler** knowledge — collect test results
 - **plan-review** ceremony — gate for approval
 ```
 
 **Step 8: Test locally**
 
-Run `squad plugin verify`, load your Squad session, and verify the installed skills appear and work as expected.
+Run `squad plugin verify`, load your Squad session, and verify the installed Squad knowledge/workflows appear and work as expected. If you declared Copilot dependencies, verify those are installed separately through Copilot.
 
 ---
 
@@ -157,7 +182,8 @@ squad plugin marketplace add github/my-org/my-team-plugins
 
 - **Client-delivery workflow** ([RFC #328](https://github.com/bradygaster/squad/issues/328)) — discovery, research, multi-round review with evidence gates
 - **Azure infrastructure patterns** — VM provisioning, Cosmos DB design, monitoring rules
-- **Knowledge library skills** — document structured analysis, reference synthesis
+- **Knowledge libraries** — document structured analysis, reference synthesis
+- **External integration samples** — see `samples/plugin-knowledge-graphify` for the real Graphify knowledge graph tool, `samples/plugin-knowledge-index-server` for the real Index Server instruction/knowledge MCP server, and `samples/plugin-memory-mempalace` for the real MemPalace memory CLI/MCP system
 
 ---
 
@@ -165,7 +191,7 @@ squad plugin marketplace add github/my-org/my-team-plugins
 
 - [Extensibility guide](./extensibility.md#decision-tree) — Where does your idea belong? (decision tree)
 - [Plugin Marketplace](../features/plugins.md) — How teams discover and install your extension
-- [Skills](../features/skills.md) — How to author reusable skills
+- [Skills](../features/skills.md) — Existing Squad skills concepts; plugin manifests should use `knowledge` unless they are declaring a Copilot dependency
 - [Ceremonies](../features/ceremonies.md) — How to define decision gates and review rituals
 
 ---

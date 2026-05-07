@@ -45,16 +45,19 @@ const ALLOWED_TARGET_ROOTS = new Set([
   'plugins',
   'prompts',
   'routing',
-  'skills',
   'templates',
+  'workflows',
 ]);
 const COMPONENT_KINDS = [
   'agents',
-  'skills',
+  'ceremonies',
+  'decisions',
+  'instructions',
   'knowledge',
   'memory',
   'routing',
-  'decisions',
+  'templates',
+  'workflows',
   'hooks',
   'adapters',
 ] as const;
@@ -66,14 +69,46 @@ export type PluginFileType =
   | 'asset'
   | 'doc'
   | 'instruction'
+  | 'knowledge'
   | 'prompt'
-  | 'skill'
-  | 'template';
+  | 'template'
+  | 'workflow';
 
 export interface PluginFileDeployment {
   source: string;
   target: string;
   type?: PluginFileType;
+}
+
+export interface CopilotPluginDependency {
+  id: string;
+  version?: string;
+  optional?: boolean;
+  reason?: string;
+}
+
+export interface CopilotPluginRequirements {
+  requires?: CopilotPluginDependency[];
+}
+
+export interface PluginRepositoryMetadata {
+  type?: string;
+  url: string;
+}
+
+export interface PluginUpstreamMetadata {
+  package?: string;
+  registry?: string;
+  installCommand?: string;
+  docs?: string;
+}
+
+export interface PluginMcpMetadata {
+  available?: boolean;
+  server?: string;
+  entryPoint?: string;
+  installCommand?: string;
+  reason?: string;
 }
 
 export interface SquadPluginManifest {
@@ -85,6 +120,10 @@ export interface SquadPluginManifest {
   license?: string;
   squad?: string;
   components?: Partial<Record<PluginComponentKind, unknown>>;
+  copilot?: CopilotPluginRequirements;
+  repository?: PluginRepositoryMetadata;
+  upstream?: PluginUpstreamMetadata;
+  mcp?: PluginMcpMetadata;
   files: PluginFileDeployment[];
 }
 
@@ -146,6 +185,10 @@ export function validatePluginManifest(manifest: SquadPluginManifest): PluginVal
     errors.push('squad compatibility must be a string when provided');
   }
   validateComponents(manifest.components, errors);
+  validateCopilotRequirements(manifest.copilot, errors);
+  validateRepositoryMetadata(manifest.repository, errors);
+  validateUpstreamMetadata(manifest.upstream, errors, warnings);
+  validateMcpMetadata(manifest.mcp, errors, warnings);
   if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
     errors.push('files must include at least one static file deployment');
   } else {
@@ -214,6 +257,10 @@ function normalizePluginManifest(raw: unknown): SquadPluginManifest {
       license: readOptionalString(raw, 'license'),
       squad: readOptionalString(raw, 'squad'),
       components: normalizeComponents(raw.components),
+      copilot: normalizeCopilotRequirements(raw.copilot),
+      repository: normalizeRepositoryMetadata(raw.repository),
+      upstream: normalizeUpstreamMetadata(raw.upstream),
+      mcp: normalizeMcpMetadata(raw.mcp),
       files: [],
     };
   }
@@ -227,6 +274,10 @@ function normalizePluginManifest(raw: unknown): SquadPluginManifest {
     license: readOptionalString(raw, 'license'),
     squad: readOptionalString(raw, 'squad'),
     components: normalizeComponents(raw.components),
+    copilot: normalizeCopilotRequirements(raw.copilot),
+    repository: normalizeRepositoryMetadata(raw.repository),
+    upstream: normalizeUpstreamMetadata(raw.upstream),
+    mcp: normalizeMcpMetadata(raw.mcp),
     files: filesRaw.map((item, index) => normalizePluginFile(item, index)),
   };
 }
@@ -281,7 +332,7 @@ function validatePluginFile(
   }
 
   if (file.type !== undefined) {
-    const allowedTypes: PluginFileType[] = ['agent', 'asset', 'doc', 'instruction', 'prompt', 'skill', 'template'];
+    const allowedTypes: PluginFileType[] = ['agent', 'asset', 'doc', 'instruction', 'knowledge', 'prompt', 'template', 'workflow'];
     if (!allowedTypes.includes(file.type)) {
       errors.push(`files[${index}].type is not supported: ${file.type}`);
     }
@@ -324,6 +375,11 @@ function readOptionalStringArray(raw: Record<string, unknown>, key: string): str
     return undefined;
   }
   return value.filter((item): item is string => typeof item === 'string');
+}
+
+function readOptionalBoolean(raw: Record<string, unknown>, key: string): boolean | undefined {
+  const value = raw[key];
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -388,6 +444,214 @@ function validateComponents(
     if (!(COMPONENT_KINDS as readonly string[]).includes(key)) {
       errors.push(`components.${key} is not supported`);
     }
+  }
+}
+
+function normalizeCopilotRequirements(raw: unknown): CopilotPluginRequirements | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    return {};
+  }
+  const requires = raw.requires;
+  if (!Array.isArray(requires)) {
+    return {};
+  }
+  return {
+    requires: requires.map((item) => normalizeCopilotPluginDependency(item)),
+  };
+}
+
+function normalizeCopilotPluginDependency(raw: unknown): CopilotPluginDependency {
+  if (!isRecord(raw)) {
+    return { id: '' };
+  }
+  return {
+    id: readString(raw, 'id'),
+    version: readOptionalString(raw, 'version'),
+    optional: readOptionalBoolean(raw, 'optional'),
+    reason: readOptionalString(raw, 'reason'),
+  };
+}
+
+function validateCopilotRequirements(
+  copilot: CopilotPluginRequirements | undefined,
+  errors: string[],
+): void {
+  if (copilot === undefined) {
+    return;
+  }
+  if (!isRecord(copilot)) {
+    errors.push('copilot must be an object when provided');
+    return;
+  }
+  if (copilot.requires === undefined) {
+    return;
+  }
+  if (!Array.isArray(copilot.requires)) {
+    errors.push('copilot.requires must be an array when provided');
+    return;
+  }
+  for (const [index, dependency] of copilot.requires.entries()) {
+    if (!isRecord(dependency)) {
+      errors.push(`copilot.requires[${index}] must be an object`);
+      continue;
+    }
+    validateCopilotPluginId(`copilot.requires[${index}].id`, dependency.id, errors);
+    if (dependency.version !== undefined && typeof dependency.version !== 'string') {
+      errors.push(`copilot.requires[${index}].version must be a string when provided`);
+    }
+    if (dependency.optional !== undefined && typeof dependency.optional !== 'boolean') {
+      errors.push(`copilot.requires[${index}].optional must be a boolean when provided`);
+    }
+    if (dependency.reason !== undefined && typeof dependency.reason !== 'string') {
+      errors.push(`copilot.requires[${index}].reason must be a string when provided`);
+    }
+  }
+}
+
+function validateCopilotPluginId(field: string, value: unknown, errors: string[]): void {
+  if (!value || typeof value !== 'string') {
+    errors.push(`${field} is required and must be a string`);
+    return;
+  }
+  if (value.includes('..') || value.startsWith('/') || value.startsWith('\\')) {
+    errors.push(`${field} must be a package or owner/name identifier, not a path`);
+  }
+}
+
+function normalizeRepositoryMetadata(raw: unknown): PluginRepositoryMetadata | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    return { url: '' };
+  }
+  return {
+    type: readOptionalString(raw, 'type'),
+    url: readString(raw, 'url'),
+  };
+}
+
+function normalizeUpstreamMetadata(raw: unknown): PluginUpstreamMetadata | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    return {};
+  }
+  return {
+    package: readOptionalString(raw, 'package'),
+    registry: readOptionalString(raw, 'registry'),
+    installCommand: readOptionalString(raw, 'installCommand'),
+    docs: readOptionalString(raw, 'docs'),
+  };
+}
+
+function normalizeMcpMetadata(raw: unknown): PluginMcpMetadata | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    return {};
+  }
+  return {
+    available: readOptionalBoolean(raw, 'available'),
+    server: readOptionalString(raw, 'server'),
+    entryPoint: readOptionalString(raw, 'entryPoint'),
+    installCommand: readOptionalString(raw, 'installCommand'),
+    reason: readOptionalString(raw, 'reason'),
+  };
+}
+
+function validateRepositoryMetadata(
+  repository: PluginRepositoryMetadata | undefined,
+  errors: string[],
+): void {
+  if (repository === undefined) {
+    return;
+  }
+  if (!isRecord(repository)) {
+    errors.push('repository must be an object when provided');
+    return;
+  }
+  if (repository.type !== undefined && typeof repository.type !== 'string') {
+    errors.push('repository.type must be a string when provided');
+  }
+  validateUrl('repository.url', repository.url, errors);
+}
+
+function validateUpstreamMetadata(
+  upstream: PluginUpstreamMetadata | undefined,
+  errors: string[],
+  warnings: string[],
+): void {
+  if (upstream === undefined) {
+    return;
+  }
+  if (!isRecord(upstream)) {
+    errors.push('upstream must be an object when provided');
+    return;
+  }
+  validateOptionalString('upstream.package', upstream.package, errors);
+  validateOptionalString('upstream.registry', upstream.registry, errors);
+  validateOptionalString('upstream.installCommand', upstream.installCommand, errors);
+  validateOptionalUrl('upstream.docs', upstream.docs, errors);
+  if (upstream.installCommand) {
+    warnings.push('upstream.installCommand is metadata only; Squad will not execute it');
+  }
+}
+
+function validateMcpMetadata(
+  mcp: PluginMcpMetadata | undefined,
+  errors: string[],
+  warnings: string[],
+): void {
+  if (mcp === undefined) {
+    return;
+  }
+  if (!isRecord(mcp)) {
+    errors.push('mcp must be an object when provided');
+    return;
+  }
+  if (mcp.available !== undefined && typeof mcp.available !== 'boolean') {
+    errors.push('mcp.available must be a boolean when provided');
+  }
+  validateOptionalString('mcp.server', mcp.server, errors);
+  validateOptionalString('mcp.entryPoint', mcp.entryPoint, errors);
+  validateOptionalString('mcp.installCommand', mcp.installCommand, errors);
+  validateOptionalString('mcp.reason', mcp.reason, errors);
+  if (mcp.installCommand) {
+    warnings.push('mcp.installCommand is metadata only; Squad will not execute it');
+  }
+}
+
+function validateOptionalString(field: string, value: unknown, errors: string[]): void {
+  if (value !== undefined && typeof value !== 'string') {
+    errors.push(`${field} must be a string when provided`);
+  }
+}
+
+function validateOptionalUrl(field: string, value: unknown, errors: string[]): void {
+  if (value === undefined) {
+    return;
+  }
+  validateUrl(field, value, errors);
+}
+
+function validateUrl(field: string, value: unknown, errors: string[]): void {
+  if (!value || typeof value !== 'string') {
+    errors.push(`${field} is required and must be a URL string`);
+    return;
+  }
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:') {
+      errors.push(`${field} must use https`);
+    }
+  } catch {
+    errors.push(`${field} must be a valid URL`);
   }
 }
 

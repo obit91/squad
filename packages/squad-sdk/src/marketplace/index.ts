@@ -171,11 +171,16 @@ export {
   validatePluginManifest,
 } from './plugin-manifest.js';
 export type {
+  CopilotPluginDependency,
+  CopilotPluginRequirements,
+  PluginMcpMetadata,
   PluginFileDeployment,
   PluginComponentKind,
   PluginFileType,
   PluginInstallPlan,
   PluginInstallPlanFile,
+  PluginRepositoryMetadata,
+  PluginUpstreamMetadata,
   PluginValidationResult,
   SquadPluginManifest,
 } from './plugin-manifest.js';
@@ -186,6 +191,7 @@ export {
   PLUGIN_RUNTIME_FILE,
   PLUGIN_STATE_DIR,
   appendAuditEvent,
+  buildActivePluginContext,
   readPluginStates,
   removeInstalledPlugin,
   setPluginEnabled,
@@ -198,6 +204,7 @@ export type {
   InstalledPlugin,
   InstalledPluginFile,
   InstalledPluginsState,
+  ActivePluginContextOptions,
   PluginAuditEvent,
   PluginAuditEventType,
   PluginAuditState,

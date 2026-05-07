@@ -222,6 +222,8 @@ async function runPluginLifecycle(dest: string, squadDir: string, args: string[]
       fatal(`Invalid plugin manifest:\n  - ${validation.errors.join('\n  - ')}`);
     }
     success(`Plugin manifest is valid: ${bold(manifest.id)}@${manifest.version}`);
+    printExternalMetadata(manifest);
+    printCopilotDependencies(manifest.copilot);
     if (action === 'dry-run') {
       console.log(`\n${BOLD}Dry run deployment plan:${RESET}\n`);
       for (const file of plan.files) {
@@ -254,6 +256,8 @@ async function runPluginLifecycle(dest: string, squadDir: string, args: string[]
 
     if (dryRun) {
       success(`Plugin manifest is valid: ${bold(manifest.id)}@${manifest.version}`);
+      printExternalMetadata(manifest);
+      printCopilotDependencies(manifest.copilot);
       console.log(`\n${BOLD}Dry run deployment plan:${RESET}\n`);
       for (const file of plan.files) {
         console.log(`  ${describePluginFile(file)}`);
@@ -292,6 +296,8 @@ async function runPluginLifecycle(dest: string, squadDir: string, args: string[]
       fatal(`Install failed and was rolled back: ${message}`);
     }
     success(`Installed plugin ${bold(manifest.id)}@${manifest.version} (disabled)`);
+    printExternalMetadata(manifest);
+    printCopilotDependencies(manifest.copilot);
     return;
   }
 
@@ -315,7 +321,12 @@ async function runPluginLifecycle(dest: string, squadDir: string, args: string[]
     for (const plugin of states.installed.plugins) {
       const status = plugin.enabled ? 'enabled' : 'disabled';
       const roles = plugin.roles.length > 0 ? ` roles=${plugin.roles.join(',')}` : '';
-      console.log(`  ${BOLD}${plugin.id}${RESET}@${plugin.version}  ${DIM}${status}${RESET}${roles}`);
+      const copilotDependencies = plugin.copilot?.requires?.length
+        ? ` copilot=${plugin.copilot.requires.length}`
+        : '';
+      const upstream = plugin.upstream?.package ? ` upstream=${plugin.upstream.package}` : '';
+      const mcp = plugin.mcp?.available ? ' mcp=available' : '';
+      console.log(`  ${BOLD}${plugin.id}${RESET}@${plugin.version}  ${DIM}${status}${RESET}${roles}${copilotDependencies}${upstream}${mcp}`);
     }
     console.log();
     return;
@@ -509,6 +520,51 @@ function safeJoin(root: string, relativePath: string): string {
 
 function pluginUsage(): string {
   return 'Usage: squad plugin marketplace add|remove|list|browse OR squad plugin validate|dry-run|install|uninstall|enable|disable|switch|list|verify';
+}
+
+function printCopilotDependencies(copilot: ReturnType<typeof parsePluginManifestContent>['copilot']): void {
+  const dependencies = copilot?.requires ?? [];
+  if (dependencies.length === 0) {
+    return;
+  }
+
+  console.log(`\n${BOLD}Copilot plugin dependencies:${RESET}`);
+  for (const dependency of dependencies) {
+    const optional = dependency.optional ? 'optional' : 'required';
+    const version = dependency.version ? ` ${dependency.version}` : '';
+    const reason = dependency.reason ? ` — ${dependency.reason}` : '';
+    console.log(`  - ${dependency.id}${version} ${DIM}(${optional})${RESET}${reason}`);
+  }
+  console.log(`${DIM}Squad records these dependencies but does not install or run Copilot plugin commands.${RESET}`);
+}
+
+function printExternalMetadata(manifest: ReturnType<typeof parsePluginManifestContent>): void {
+  if (!manifest.repository && !manifest.upstream && !manifest.mcp) {
+    return;
+  }
+
+  console.log(`\n${BOLD}External integration metadata:${RESET}`);
+  if (manifest.repository) {
+    console.log(`  - repository: ${manifest.repository.url}`);
+  }
+  if (manifest.upstream) {
+    const packageName = manifest.upstream.package ? ` ${manifest.upstream.package}` : '';
+    const registry = manifest.upstream.registry ? ` (${manifest.upstream.registry})` : '';
+    console.log(`  - upstream:${packageName}${registry}`);
+    if (manifest.upstream.installCommand) {
+      console.log(`    install hint: ${manifest.upstream.installCommand}`);
+    }
+  }
+  if (manifest.mcp) {
+    const available = manifest.mcp.available ? 'available' : 'not declared available';
+    const server = manifest.mcp.server ? ` server=${manifest.mcp.server}` : '';
+    const entryPoint = manifest.mcp.entryPoint ? ` entry=${manifest.mcp.entryPoint}` : '';
+    console.log(`  - MCP: ${available}${server}${entryPoint}`);
+    if (manifest.mcp.installCommand) {
+      console.log(`    install hint: ${manifest.mcp.installCommand}`);
+    }
+  }
+  console.log(`${DIM}Squad records this metadata but does not install packages, start MCP servers, or run external commands.${RESET}`);
 }
 
 function bold(value: string): string {

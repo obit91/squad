@@ -1,7 +1,16 @@
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { isAbsolute, join, normalize } from 'node:path';
 import type { StorageProvider } from '../storage/index.js';
-import { derivePluginRoles, type PluginComponentKind, type PluginFileDeployment, type SquadPluginManifest } from './plugin-manifest.js';
+import {
+  derivePluginRoles,
+  type CopilotPluginRequirements,
+  type PluginMcpMetadata,
+  type PluginComponentKind,
+  type PluginFileDeployment,
+  type PluginRepositoryMetadata,
+  type PluginUpstreamMetadata,
+  type SquadPluginManifest,
+} from './plugin-manifest.js';
 
 export const PLUGIN_STATE_DIR = 'plugins';
 export const INSTALLED_PLUGINS_FILE = join(PLUGIN_STATE_DIR, 'installed.json');
@@ -21,6 +30,10 @@ export interface InstalledPlugin {
   source: string;
   installed_at: string;
   roles: PluginComponentKind[];
+  copilot?: CopilotPluginRequirements;
+  repository?: PluginRepositoryMetadata;
+  upstream?: PluginUpstreamMetadata;
+  mcp?: PluginMcpMetadata;
   files: InstalledPluginFile[];
 }
 
@@ -79,6 +92,15 @@ export interface PluginStates {
   audit: PluginAuditState;
 }
 
+export interface ActivePluginContextOptions {
+  /**
+   * Maximum number of characters to include from each installed artifact.
+   * Keeps spawned-agent prompts bounded while still proving the static guidance
+   * is consumed. Defaults to 12k per artifact.
+   */
+  maxArtifactChars?: number;
+}
+
 export async function readPluginStates(storage: StorageProvider, stateRoot = ''): Promise<PluginStates> {
   const [installed, lock, runtime, audit] = await Promise.all([
     readJsonState<InstalledPluginsState>(storage, join(stateRoot, INSTALLED_PLUGINS_FILE), { plugins: [] }),
@@ -89,6 +111,73 @@ export async function readPluginStates(storage: StorageProvider, stateRoot = '')
   runtime.active ??= {};
 
   return { installed, lock, runtime, audit };
+}
+
+export async function buildActivePluginContext(
+  storage: StorageProvider,
+  stateRoot = '',
+  options: ActivePluginContextOptions = {},
+): Promise<string> {
+  const states = await readPluginStates(storage, stateRoot);
+  const maxArtifactChars = options.maxArtifactChars ?? 12_000;
+  const activePluginIds = Array.from(new Set(
+    Object.values(states.runtime.active)
+      .filter((pluginId): pluginId is string => typeof pluginId === 'string')
+      .filter((pluginId) => states.runtime.plugins[pluginId]?.enabled === true),
+  )).sort((a, b) => a.localeCompare(b));
+
+  if (activePluginIds.length === 0) {
+    return '';
+  }
+
+  const sections: string[] = [
+    '## Active Squad Plugins',
+    [
+      'The following enabled Squad plugins contributed declarative static artifacts.',
+      'Squad has not installed upstream packages, started MCP servers, or run external plugin commands.',
+      'Use these artifacts as guidance and metadata when they are relevant to the task.',
+    ].join(' '),
+  ];
+
+  for (const pluginId of activePluginIds) {
+    const plugin = states.installed.plugins.find((candidate) => candidate.id === pluginId);
+    if (!plugin?.enabled) {
+      continue;
+    }
+
+    const activeRoles = Object.entries(states.runtime.active)
+      .filter(([, activePluginId]) => activePluginId === plugin.id)
+      .map(([role]) => role)
+      .sort((a, b) => a.localeCompare(b));
+
+    sections.push([
+      `### ${plugin.name} (${plugin.id}@${plugin.version})`,
+      `Roles: ${activeRoles.length > 0 ? activeRoles.join(', ') : plugin.roles.join(', ')}`,
+      plugin.repository?.url ? `Repository: ${plugin.repository.url}` : undefined,
+      plugin.upstream?.package ? `Upstream package: ${plugin.upstream.package}${plugin.upstream.registry ? ` (${plugin.upstream.registry})` : ''}` : undefined,
+      plugin.mcp?.available ? `MCP metadata: ${plugin.mcp.server ?? plugin.mcp.entryPoint ?? 'available'} (metadata only)` : undefined,
+    ].filter((line): line is string => typeof line === 'string').join('\n'));
+
+    for (const file of [...plugin.files].sort((a, b) => a.target.localeCompare(b.target))) {
+      if (!isSafeInstalledPluginTarget(file.target)) {
+        sections.push(`#### Installed artifact: .squad/${file.target}\nSkipped unsafe plugin state target.`);
+        continue;
+      }
+      const content = await storage.read(join(stateRoot, file.target));
+      if (content === undefined) {
+        sections.push(`#### Installed artifact: .squad/${file.target}\nArtifact listed in plugin state but not found on disk.`);
+        continue;
+      }
+
+      const trimmed = content.trim();
+      const excerpt = trimmed.length > maxArtifactChars
+        ? `${trimmed.slice(0, maxArtifactChars)}\n\n[truncated: ${trimmed.length - maxArtifactChars} characters omitted]`
+        : trimmed;
+      sections.push(`#### Installed artifact: .squad/${file.target}\n${excerpt}`);
+    }
+  }
+
+  return sections.join('\n\n');
 }
 
 export async function writePluginStates(storage: StorageProvider, states: PluginStates, stateRoot = ''): Promise<void> {
@@ -122,6 +211,10 @@ export function upsertInstalledPlugin(
     source: options.source,
     installed_at: now,
     roles: derivePluginRoles(manifest),
+    copilot: manifest.copilot,
+    repository: manifest.repository,
+    upstream: manifest.upstream,
+    mcp: manifest.mcp,
     files: options.files,
   };
 
@@ -291,4 +384,12 @@ async function readAuditState(storage: StorageProvider, filePath: string): Promi
 async function writeAuditState(storage: StorageProvider, filePath: string, audit: PluginAuditState): Promise<void> {
   const content = audit.events.map((event) => JSON.stringify(event)).join('\n');
   await storage.write(filePath, content.length > 0 ? `${content}\n` : '');
+}
+
+function isSafeInstalledPluginTarget(target: string): boolean {
+  const normalized = normalize(target).replaceAll('\\', '/');
+  return !isAbsolute(target)
+    && normalized !== '..'
+    && !normalized.startsWith('../')
+    && !normalized.split('/').includes('..');
 }

@@ -2,7 +2,9 @@
 
 > ⚠️ **Experimental** — Squad is alpha software. APIs, commands, and behavior may change between releases.
 
-Plugins package reusable Squad capabilities such as agents, skills, knowledge packs, memory providers, routing guidance, decisions, hook metadata, and adapter metadata. The MVP is intentionally conservative: plugins are declarative static-file bundles. Squad records hook and adapter metadata, but it does not execute plugin-supplied code.
+Plugins package reusable Squad capabilities such as agents, knowledge packs, workflows, ceremonies, memory providers, routing guidance, decisions, hook metadata, and adapter metadata. The MVP is intentionally conservative: plugins are declarative static-file bundles. Squad records hook and adapter metadata, but it does not execute plugin-supplied code.
+
+Squad plugins do not replace Copilot plugins or Copilot skills. If a Squad plugin depends on Copilot-owned extensibility, declare that under `copilot.requires`; Squad records and surfaces the dependency, but it does not install it or run Copilot plugin commands.
 
 ---
 
@@ -62,22 +64,94 @@ The MVP manifest file is `plugin.manifest.json`. The validator also accepts lega
   "license": "MIT",
   "squad": ">=0.9.1",
   "components": {
-    "skills": ["demo-plugin"],
+    "knowledge": ["demo-plugin"],
     "memory": { "provider": "demo-memory" }
+  },
+  "copilot": {
+    "requires": [
+      {
+        "id": "github/copilot-plugin-example",
+        "version": ">=1.0.0",
+        "optional": true,
+        "reason": "Enables Copilot-owned commands when the user has installed it."
+      }
+    ]
+  },
+  "repository": {
+    "type": "github",
+    "url": "https://github.com/example/demo-plugin"
+  },
+  "upstream": {
+    "package": "demo-tool",
+    "registry": "pypi",
+    "installCommand": "pip install demo-tool",
+    "docs": "https://github.com/example/demo-plugin"
+  },
+  "mcp": {
+    "available": true,
+    "server": "demo-tool",
+    "entryPoint": "demo-tool-mcp",
+    "installCommand": "demo-tool-mcp",
+    "reason": "Optional external MCP server users may configure separately."
   },
   "files": [
     {
-      "source": "SKILL.md",
-      "target": "skills/demo-plugin/SKILL.md",
-      "type": "skill"
+      "source": "guidance.md",
+      "target": "knowledge/demo-plugin/guidance.md",
+      "type": "knowledge"
     }
   ]
 }
 ```
 
-Supported component keys are `agents`, `skills`, `knowledge`, `memory`, `routing`, `decisions`, `hooks`, and `adapters`. Capability roles are derived only from these declared components; arbitrary capability strings are not accepted.
+Supported Squad component keys are `agents`, `ceremonies`, `decisions`, `instructions`, `knowledge`, `memory`, `routing`, `templates`, `workflows`, `hooks`, and `adapters`. Capability roles are derived only from these declared components; arbitrary capability strings are not accepted.
 
-Declared files must be relative paths under approved `.squad/` roots such as `agents/`, `skills/`, `knowledge/`, `memory/`, `routing/`, `decisions/`, `ceremonies/`, `prompts/`, `instructions/`, `templates/`, or `plugins/`.
+Declared files must be relative paths under approved `.squad/` roots such as `agents/`, `knowledge/`, `memory/`, `routing/`, `decisions/`, `ceremonies/`, `prompts/`, `instructions/`, `templates/`, `workflows/`, or `plugins/`.
+
+Copilot plugin dependencies are metadata only:
+
+```json
+{
+  "copilot": {
+    "requires": [
+      {
+        "id": "github/copilot-plugin-example",
+        "version": ">=1.0.0",
+        "optional": false,
+        "reason": "Provides the Copilot-side command this Squad workflow references."
+      }
+    ]
+  }
+}
+```
+
+Squad validates and records these dependencies so users know what Copilot plugins to install separately. Squad does not fetch, install, execute, or manage Copilot plugins.
+
+External integration metadata is also record-only. Fields such as `repository`, `upstream.installCommand`, and `mcp.installCommand` explain how a human can install external tools separately; Squad never runs those commands.
+
+---
+
+## Runtime behavior
+
+Enabled plugins affect spawned Squad agents through their installed static artifacts. When an agent session is spawned, Squad reads `.squad/plugins/runtime.json`, finds enabled active plugin roles, and injects the installed guidance/metadata files into the agent system context under a `Plugin Context` section.
+
+This is still declarative-only behavior: Squad consumes copied Markdown/metadata from `.squad/`, but it does not install upstream packages, start MCP servers, execute plugin commands, or query external tools during plugin install or agent spawn.
+
+Disabled plugins do not contribute prompt context, even if their files remain installed on disk.
+
+---
+
+## External integration examples
+
+The repository includes local sample plugins that exercise external integration metadata without adding executable provider code:
+
+| Example | Purpose |
+| --- | --- |
+| `samples/plugin-knowledge-graphify` | Knowledge graph profile for the real `safishamsi/graphify` project and PyPI package `graphifyy`. It installs static guidance under `.squad/knowledge/graphify/`. |
+| `samples/plugin-knowledge-index-server` | Instruction and knowledge MCP profile for the real `jagilber-org/index-server` project and npm package `@jagilber-org/index-server`. It installs static guidance under `.squad/knowledge/index-server/`. |
+| `samples/plugin-memory-mempalace` | Memory-palace-style provider profile for the real `MemPalace/mempalace` CLI and optional `mempalace-mcp` server. It installs static guidance under `.squad/memory/providers/`. |
+
+Graphify's Copilot support is a separately installed skill/integration, not a Squad memory provider or a Squad-managed Copilot plugin. Index Server is an MCP-governed instruction/knowledge catalog, not a memory provider, although it is adjacent because agents can persist validated knowledge across sessions and repositories. MemPalace is a real memory system, but Squad still does not install its package, start MCP, or configure assistant hooks.
 
 ---
 
@@ -100,6 +174,8 @@ The MVP security gate is strict:
 
 - No plugin scripts, commands, lifecycle hooks, shell snippets, or executable files are allowed.
 - No plugin content is evaluated or run by Squad.
+- No Copilot plugin commands are run by Squad; `copilot.requires` is dependency metadata only.
+- No external package install hints or MCP setup hints are run by Squad; `repository`, `upstream`, and `mcp` fields are metadata only.
 - Hook and adapter declarations are metadata only.
 - Plugin file writes are limited to declared relative targets under `.squad/`.
 - Path traversal, absolute paths, symlinks, and script/executable extensions are rejected.
@@ -112,4 +188,4 @@ See [Plugin security model](../reference/plugin-security.md) for the threat mode
 
 - [Building extensions](../guide/building-extensions.md) — how to author a local plugin.
 - [Extensibility guide](../guide/extensibility.md) — how to decide whether an idea belongs in core, a plugin, or team config.
-- [Skills System](./skills.md) — how plugins encode reusable knowledge.
+- [Skills System](./skills.md) — the existing Squad knowledge layer; plugin manifests should prefer `knowledge` for reusable guidance and use `copilot.requires` for Copilot-owned plugins.
