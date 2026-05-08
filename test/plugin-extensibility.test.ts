@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,9 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createPluginInstallPlan,
   derivePluginRoles,
+  executeLifecycleHook,
   parsePluginManifestContent,
   validatePluginManifest,
 } from '../packages/squad-sdk/src/marketplace/index.js';
+import { FSStorageProvider } from '../packages/squad-sdk/src/storage/index.js';
 import { AgentLifecycleManager } from '../packages/squad-sdk/src/agents/index.js';
 import { runPlugin } from '../packages/squad-cli/src/cli/commands/plugin.js';
 
@@ -740,3 +742,198 @@ function simulateSpawnedAgentPlan(systemPrompt: string, task: string): Simulated
     externalExecutionProhibited,
   };
 }
+
+describe('Plugin Runtime Capabilities', () => {
+  let tmpDir: string;
+  let storage: FSStorageProvider;
+  let squadDir: string;
+
+  beforeEach(() => {
+    tmpDir = realpathSync(mkdtempSync(join(tmpdir(), 'squad-runtime-test-')));
+    squadDir = join(tmpDir, '.squad');
+    mkdirSync(squadDir, { recursive: true });
+    storage = new FSStorageProvider();
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('validates graphify runtime manifest with capabilities', () => {
+    const manifestPath = join(process.cwd(), 'samples', 'plugin-knowledge-graphify', 'plugin.manifest.json');
+    const manifest = parsePluginManifestContent(readFileSync(manifestPath, 'utf8'));
+    const validation = validatePluginManifest(manifest);
+
+    expect(validation.valid, validation.errors.join(', ')).toBe(true);
+    expect(manifest.runtime).toBeDefined();
+    expect(manifest.runtime?.capabilities).toHaveLength(1);
+    expect(manifest.runtime?.capabilities?.[0].type).toBe('artifact-generation');
+    expect(manifest.runtime?.capabilities?.[0].provider).toBe('graphify');
+    expect(manifest.runtime?.capabilities?.[0].lifecycle).toContain('onMemoryRefresh');
+    expect(validation.warnings.some((w) => w.includes('built-in artifact operations'))).toBe(true);
+  });
+
+  it('rejects unsafe output paths in runtime capabilities', () => {
+    const manifest = parsePluginManifestContent(JSON.stringify({
+      id: 'bad-plugin',
+      name: 'Bad Plugin',
+      version: '1.0.0',
+      runtime: {
+        capabilities: [{
+          type: 'artifact-generation',
+          provider: 'graphify',
+          lifecycle: ['onMemoryRefresh'],
+          outputPaths: ['../../../etc/passwd'],
+        }],
+      },
+      files: [{ source: 'README.md', target: 'knowledge/readme.md', type: 'doc' }],
+    }));
+    const validation = validatePluginManifest(manifest);
+
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.some((e) => e.includes('escape'))).toBe(true);
+  });
+
+  it('rejects unsupported provider in runtime capabilities', () => {
+    const manifest = parsePluginManifestContent(JSON.stringify({
+      id: 'bad-plugin',
+      name: 'Bad Plugin',
+      version: '1.0.0',
+      runtime: {
+        capabilities: [{
+          type: 'artifact-generation',
+          provider: 'unsupported-provider',
+          lifecycle: ['onMemoryRefresh'],
+          outputPaths: ['knowledge/output.json'],
+        }],
+      },
+      files: [{ source: 'README.md', target: 'knowledge/readme.md', type: 'doc' }],
+    }));
+    const validation = validatePluginManifest(manifest);
+
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.some((e) => e.includes('not approved'))).toBe(true);
+  });
+
+  it('rejects unsupported lifecycle event in runtime capabilities', () => {
+    const manifest = parsePluginManifestContent(JSON.stringify({
+      id: 'bad-plugin',
+      name: 'Bad Plugin',
+      version: '1.0.0',
+      runtime: {
+        capabilities: [{
+          type: 'artifact-generation',
+          provider: 'graphify',
+          lifecycle: ['onUnsupportedEvent'],
+          outputPaths: ['knowledge/output.json'],
+        }],
+      },
+      files: [{ source: 'README.md', target: 'knowledge/readme.md', type: 'doc' }],
+    }));
+    const validation = validatePluginManifest(manifest);
+
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.some((e) => e.includes('not allowed'))).toBe(true);
+  });
+
+  it('rejects executable extensions in runtime output paths', () => {
+    const manifest = parsePluginManifestContent(JSON.stringify({
+      id: 'bad-plugin',
+      name: 'Bad Plugin',
+      version: '1.0.0',
+      runtime: {
+        capabilities: [{
+          type: 'artifact-generation',
+          provider: 'graphify',
+          lifecycle: ['onMemoryRefresh'],
+          outputPaths: ['knowledge/malicious.sh'],
+        }],
+      },
+      files: [{ source: 'README.md', target: 'knowledge/readme.md', type: 'doc' }],
+    }));
+    const validation = validatePluginManifest(manifest);
+
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.some((e) => e.includes('executable'))).toBe(true);
+  });
+
+  it('executes graphify lifecycle and generates artifacts under .squad/knowledge/graphify', async () => {
+    const capabilities = [{
+      type: 'artifact-generation' as const,
+      provider: 'graphify',
+      lifecycle: ['onMemoryRefresh' as const],
+      outputPaths: ['knowledge/graphify/graph.json', 'knowledge/graphify/GRAPH_REPORT.md'],
+    }];
+
+    const audit = { events: [] };
+    const results = await executeLifecycleHook(
+      'graphify-knowledge',
+      '1.0.0',
+      'onMemoryRefresh',
+      capabilities,
+      storage,
+      squadDir,
+      audit
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0].success).toBe(true);
+    expect(results[0].artifactsGenerated).toHaveLength(2);
+
+    const graphContent = await storage.read(join(squadDir, 'knowledge/graphify/graph.json'));
+    const reportContent = await storage.read(join(squadDir, 'knowledge/graphify/GRAPH_REPORT.md'));
+
+    expect(graphContent).toBeDefined();
+    expect(reportContent).toBeDefined();
+    const graphData = JSON.parse(graphContent!);
+    expect(graphData.plugin_id).toBe('graphify-knowledge');
+    expect(reportContent).toContain('# Graphify Knowledge Graph Report');
+  });
+
+  it('denies lifecycle execution when no applicable capabilities exist', async () => {
+    const capabilities = [{
+      type: 'artifact-generation' as const,
+      provider: 'graphify',
+      lifecycle: ['onEnable' as const],
+      outputPaths: ['knowledge/graph.json'],
+    }];
+
+    const audit = { events: [] };
+    const results = await executeLifecycleHook(
+      'test-plugin',
+      '1.0.0',
+      'onMemoryRefresh',
+      capabilities,
+      storage,
+      squadDir,
+      audit
+    );
+
+    expect(results).toHaveLength(0);
+    expect(audit.events.some((e) => e.message.includes('no applicable capabilities'))).toBe(true);
+  });
+
+  it('audits runtime lifecycle execution', async () => {
+    const capabilities = [{
+      type: 'artifact-generation' as const,
+      provider: 'graphify',
+      lifecycle: ['onMemoryRefresh' as const],
+      outputPaths: ['knowledge/graph.json', 'knowledge/report.md'],
+    }];
+
+    const audit = { events: [] };
+    await executeLifecycleHook(
+      'test-plugin',
+      '1.0.0',
+      'onMemoryRefresh',
+      capabilities,
+      storage,
+      squadDir,
+      audit
+    );
+
+    expect(audit.events).toHaveLength(1);
+    expect(audit.events[0].type).toBe('provider_invoked');
+    expect(audit.events[0].message).toContain('succeeded');
+  });
+});

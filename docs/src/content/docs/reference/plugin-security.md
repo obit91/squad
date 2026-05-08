@@ -25,6 +25,7 @@ External packages, repositories, and MCP servers can be described with `reposito
 | Squad plugin install silently installs external packages or starts MCP servers | `repository`, `upstream`, and `mcp` are validated as metadata only. Squad does not run install hints or MCP setup hints. |
 | Provider contract triggers live memory or knowledge backend calls | `providers` is validated as declarative metadata only. Squad surfaces provider type, protocol, artifact, capabilities, and MCP binding hints without starting servers or calling tools. |
 | Network egress from plugin-supplied content | MVP plugin lifecycle commands do not execute plugin content, so plugin content cannot initiate network calls. |
+| Governed artifact generation executes arbitrary code | Artifact generation is strictly gated by provider allowlist, lifecycle event allowlist, and output path allowlist. Only built-in approved providers (currently Graphify) are whitelisted. Generated artifacts use only approved provider built-in operations. |
 
 ---
 
@@ -41,11 +42,16 @@ The following must remain unreachable from `validate`, `dry-run`, `install`, `en
 7. Running upstream package install hints or MCP setup hints from the Squad plugin lifecycle.
 8. Calling live provider tools or querying external provider backends from plugin metadata.
 
+Runtime artifact generation commands (`refresh`, `run-lifecycle`) add a new capability but preserve all red lines:
+
+- **Still denied:** arbitrary provider execution, shell commands, package installs, network calls, MCP server startup, plugin-provided executable code, or modifications to plugin-supplied content.
+- **Allowed under governance:** Built-in approved providers (Graphify) generating artifacts to approved output paths through designated lifecycle events only.
+
 ---
 
 ## Audit and rollback
 
-Installs are rollback-protected: if file copy or state writing fails, copied files are removed and previous plugin state is restored. Lifecycle events are written to `.squad/plugins/audit.jsonl` as JSON Lines so reviewers and tools can inspect what happened without parsing console output.
+Installs are rollback-protected: if file copy or state writing fails, copied files are removed and previous plugin state is restored. Lifecycle events, including artifact generation, are written to `.squad/plugins/audit.jsonl` as JSON Lines so reviewers and tools can inspect what happened without parsing console output.
 
 ---
 
@@ -58,3 +64,8 @@ Before merging plugin lifecycle changes:
 3. Confirm new manifest fields remain declarative metadata.
 4. Confirm no plugin-supplied string reaches `eval`, `Function`, dynamic `import`, `child_process`, Copilot plugin commands, or shell execution.
 5. Confirm all file writes are based on validated manifest targets and use safe path joins.
+6. For artifact generation changes:
+   - Confirm new providers are added to the provider allowlist only after security review.
+   - Confirm only designated lifecycle events can trigger artifact generation.
+   - Confirm generated artifacts are restricted to approved `.squad/` paths.
+   - Confirm provider implementation uses only built-in operations, no arbitrary code execution.

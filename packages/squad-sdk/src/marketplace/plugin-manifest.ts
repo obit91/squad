@@ -120,10 +120,23 @@ const PROVIDER_TYPES = [
 ] as const;
 const PROVIDER_MODES = ['read', 'write', 'read-write'] as const;
 const PROVIDER_PROTOCOLS = ['static-artifact', 'mcp'] as const;
+const RUNTIME_CAPABILITY_TYPES = ['artifact-generation'] as const;
+const APPROVED_RUNTIME_PROVIDERS = ['graphify'] as const;
+const ALLOWED_LIFECYCLE_EVENTS = [
+  'onInstall',
+  'onEnable',
+  'onDisable',
+  'onBeforeSpawn',
+  'onAfterTask',
+  'onMemoryRefresh',
+] as const;
 
 export type PluginProviderType = typeof PROVIDER_TYPES[number];
 export type PluginProviderMode = typeof PROVIDER_MODES[number];
 export type PluginProviderProtocol = typeof PROVIDER_PROTOCOLS[number];
+export type PluginRuntimeCapabilityType = typeof RUNTIME_CAPABILITY_TYPES[number];
+export type RuntimeProviderName = typeof APPROVED_RUNTIME_PROVIDERS[number];
+export type LifecycleEventName = typeof ALLOWED_LIFECYCLE_EVENTS[number];
 
 export interface PluginProviderMcpBinding {
   server?: string;
@@ -142,6 +155,18 @@ export interface PluginProviderContract {
   capabilities?: string[];
 }
 
+export interface PluginRuntimeCapability {
+  type: PluginRuntimeCapabilityType;
+  provider: RuntimeProviderName;
+  lifecycle: LifecycleEventName[];
+  outputPaths: string[];
+  description?: string;
+}
+
+export interface PluginRuntimeManifest {
+  capabilities?: PluginRuntimeCapability[];
+}
+
 export interface SquadPluginManifest {
   id: string;
   name: string;
@@ -156,6 +181,7 @@ export interface SquadPluginManifest {
   upstream?: PluginUpstreamMetadata;
   mcp?: PluginMcpMetadata;
   providers?: PluginProviderContract[];
+  runtime?: PluginRuntimeManifest;
   files: PluginFileDeployment[];
 }
 
@@ -222,6 +248,7 @@ export function validatePluginManifest(manifest: SquadPluginManifest): PluginVal
   validateUpstreamMetadata(manifest.upstream, errors, warnings);
   validateMcpMetadata(manifest.mcp, errors, warnings);
   validateProviderContracts(manifest.providers, errors, warnings);
+  validateRuntimeManifest(manifest.runtime, errors);
   if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
     errors.push('files must include at least one static file deployment');
   } else {
@@ -295,6 +322,7 @@ function normalizePluginManifest(raw: unknown): SquadPluginManifest {
       upstream: normalizeUpstreamMetadata(raw.upstream),
       mcp: normalizeMcpMetadata(raw.mcp),
       providers: normalizeProviderContracts(raw.providers),
+      runtime: normalizeRuntimeManifest(raw.runtime),
       files: [],
     };
   }
@@ -313,6 +341,7 @@ function normalizePluginManifest(raw: unknown): SquadPluginManifest {
     upstream: normalizeUpstreamMetadata(raw.upstream),
     mcp: normalizeMcpMetadata(raw.mcp),
     providers: normalizeProviderContracts(raw.providers),
+    runtime: normalizeRuntimeManifest(raw.runtime),
     files: filesRaw.map((item, index) => normalizePluginFile(item, index)),
   };
 }
@@ -641,6 +670,46 @@ function normalizeProviderMcpBinding(raw: unknown): PluginProviderMcpBinding | u
   };
 }
 
+function normalizeRuntimeManifest(raw: unknown): PluginRuntimeManifest | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    return {};
+  }
+  return {
+    capabilities: normalizeRuntimeCapabilities(raw.capabilities),
+  };
+}
+
+function normalizeRuntimeCapabilities(raw: unknown): PluginRuntimeCapability[] | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.map((item) => normalizeRuntimeCapability(item));
+}
+
+function normalizeRuntimeCapability(raw: unknown): PluginRuntimeCapability {
+  if (!isRecord(raw)) {
+    return {
+      type: 'artifact-generation',
+      provider: 'graphify',
+      lifecycle: [],
+      outputPaths: [],
+    };
+  }
+  return {
+    type: readString(raw, 'type') as PluginRuntimeCapabilityType,
+    provider: readString(raw, 'provider') as RuntimeProviderName,
+    lifecycle: readOptionalStringArray(raw, 'lifecycle') as LifecycleEventName[] | undefined ?? [],
+    outputPaths: readOptionalStringArray(raw, 'outputPaths') ?? [],
+    description: readOptionalString(raw, 'description'),
+  };
+}
+
 function validateRepositoryMetadata(
   repository: PluginRepositoryMetadata | undefined,
   errors: string[],
@@ -757,6 +826,80 @@ function validateProviderContracts(
         warnings.push(`${prefix}.mcp is provider metadata only; Squad will not start MCP servers or call provider tools`);
       }
     }
+  }
+}
+
+function validateRuntimeManifest(
+  runtime: PluginRuntimeManifest | undefined,
+  errors: string[],
+): void {
+  if (runtime === undefined) {
+    return;
+  }
+  if (!isRecord(runtime)) {
+    errors.push('runtime must be an object when provided');
+    return;
+  }
+  if (runtime.capabilities === undefined) {
+    return;
+  }
+  if (!Array.isArray(runtime.capabilities)) {
+    errors.push('runtime.capabilities must be an array when provided');
+    return;
+  }
+  for (const [index, capability] of runtime.capabilities.entries()) {
+    const prefix = `runtime.capabilities[${index}]`;
+    if (!isRecord(capability)) {
+      errors.push(`${prefix} must be an object`);
+      continue;
+    }
+    if (!RUNTIME_CAPABILITY_TYPES.includes(capability.type)) {
+      errors.push(`${prefix}.type must be one of: ${RUNTIME_CAPABILITY_TYPES.join(', ')}`);
+    }
+    if (!APPROVED_RUNTIME_PROVIDERS.includes(capability.provider)) {
+      errors.push(
+        `${prefix}.provider "${capability.provider}" is not approved. Allowed providers: ${APPROVED_RUNTIME_PROVIDERS.join(', ')}`,
+      );
+    }
+    if (!Array.isArray(capability.lifecycle)) {
+      errors.push(`${prefix}.lifecycle must be an array`);
+    } else if (capability.lifecycle.length === 0) {
+      errors.push(`${prefix}.lifecycle must not be empty`);
+    } else {
+      for (const [lifecycleIndex, event] of capability.lifecycle.entries()) {
+        if (typeof event !== 'string') {
+          errors.push(`${prefix}.lifecycle[${lifecycleIndex}] must be a string`);
+        } else if (!ALLOWED_LIFECYCLE_EVENTS.includes(event as LifecycleEventName)) {
+          errors.push(
+            `${prefix}.lifecycle[${lifecycleIndex}] "${event}" is not allowed. Allowed events: ${ALLOWED_LIFECYCLE_EVENTS.join(', ')}`,
+          );
+        }
+      }
+    }
+    if (!Array.isArray(capability.outputPaths)) {
+      errors.push(`${prefix}.outputPaths must be an array`);
+    } else if (capability.outputPaths.length === 0) {
+      errors.push(`${prefix}.outputPaths must not be empty`);
+    } else {
+      for (const [pathIndex, outputPath] of capability.outputPaths.entries()) {
+        const pathPrefix = `${prefix}.outputPaths[${pathIndex}]`;
+        if (typeof outputPath !== 'string') {
+          errors.push(`${pathPrefix} must be a string`);
+          continue;
+        }
+        if (outputPath.trim() === '') {
+          errors.push(`${pathPrefix} must not be empty`);
+          continue;
+        }
+        validateRelativePath(pathPrefix, outputPath, errors);
+        validateStaticFileExtension(pathPrefix, outputPath, errors);
+        const root = outputPath.split('/')[0];
+        if (!root || !ALLOWED_TARGET_ROOTS.has(root)) {
+          errors.push(`${pathPrefix} must start with one of: ${[...ALLOWED_TARGET_ROOTS].join(', ')}`);
+        }
+      }
+    }
+    validateOptionalString(`${prefix}.description`, capability.description, errors);
   }
 }
 

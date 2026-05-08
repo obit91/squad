@@ -37,7 +37,9 @@
     "slugified", "simplejwt", "pytest", "Luca", "Clemenza",
     "Tessio", "Triaging", "Futurama", "mklink", "mktree", "slnx", "jqlang",
     "benleane", "TELMU", "Automator", "kedacore",
-    "DEVBOX", "myaccount", "graphify", "Graphify", "graphifyy", "safishamsi", "jagilber"
+    "DEVBOX", "myaccount", "graphify", "Graphify", "graphifyy", "safishamsi", "jagilber",
+    "benchmarkfn", "filterissuesbystream", "filterissuesbyworkstream", "Recognised", "recognised",
+    "squadified", "TOCTOU", "unflushed", "unparseable"
   ],
   "dictionaries": ["en_US", "typescript", "node", "npm", "bash"],
   "allowCompoundWords": true

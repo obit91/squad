@@ -42,6 +42,23 @@
       ]
     }
   ],
+  "runtime": {
+    "capabilities": [
+      {
+        "type": "artifact-generation",
+        "provider": "graphify",
+        "lifecycle": [
+          "onEnable",
+          "onMemoryRefresh"
+        ],
+        "outputPaths": [
+          "knowledge/graphify/graph.json",
+          "knowledge/graphify/GRAPH_REPORT.md"
+        ],
+        "description": "Generate deterministic static knowledge graph artifacts without installing or executing the external graphifyy CLI."
+      }
+    ]
+  },
   "files": [
     {
       "source": "knowledge/graphify-integration.md",

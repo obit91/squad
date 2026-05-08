@@ -173,6 +173,7 @@ export {
 export type {
   CopilotPluginDependency,
   CopilotPluginRequirements,
+  LifecycleEventName,
   PluginMcpMetadata,
   PluginFileDeployment,
   PluginComponentKind,
@@ -185,10 +186,22 @@ export type {
   PluginProviderProtocol,
   PluginProviderType,
   PluginRepositoryMetadata,
+  PluginRuntimeCapability,
+  PluginRuntimeManifest,
   PluginUpstreamMetadata,
   PluginValidationResult,
   SquadPluginManifest,
 } from './plugin-manifest.js';
+export {
+  executeLifecycleHook,
+  getApprovedProviderNames,
+  isLifecycleEventName,
+} from './plugin-runtime.js';
+export { LIFECYCLE_EVENT_NAMES } from './plugin-runtime.js';
+export type {
+  ProviderOperationContext,
+  ProviderOperationResult,
+} from './plugin-runtime.js';
 export {
   INSTALLED_PLUGINS_FILE,
   PLUGIN_AUDIT_FILE,

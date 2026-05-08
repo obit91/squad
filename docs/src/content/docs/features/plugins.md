@@ -165,7 +165,7 @@ The repository includes local sample plugins that exercise external integration 
 
 | Example | Purpose |
 | --- | --- |
-| `samples/plugin-knowledge-graphify` | Knowledge graph profile for the real `safishamsi/graphify` project and PyPI package `graphifyy`. It declares a `knowledge` provider contract bound to a static artifact under `.squad/knowledge/graphify/`. |
+| `samples/plugin-knowledge-graphify` | Knowledge graph profile for the real `safishamsi/graphify` project and PyPI package `graphifyy`. It declares a `knowledge` provider contract bound to a static artifact under `.squad/knowledge/graphify/`, and can refresh governed Graphify artifacts with `squad plugin refresh graphify-knowledge`. |
 | `samples/plugin-knowledge-index-server` | Instruction and knowledge MCP profile for the real `jagilber-org/index-server` project and npm package `@jagilber-org/index-server`. It declares a metadata-only `knowledge` provider contract for the Index Server MCP catalog. |
 | `samples/plugin-memory-mempalace` | Memory-palace-style provider profile for the real `MemPalace/mempalace` CLI and optional `mempalace-mcp` server. It declares a metadata-only `memory` provider contract for spatial memory. |
 
@@ -190,7 +190,8 @@ Squad stores plugin state under `.squad/plugins/`:
 
 The MVP security gate is strict:
 
-- No plugin scripts, commands, lifecycle hooks, shell snippets, or executable files are allowed.
+- No plugin scripts, commands, shell snippets, or executable files are allowed.
+- Lifecycle hooks are limited to Squad-owned, capability-gated providers that generate static artifacts.
 - No plugin content is evaluated or run by Squad.
 - No Copilot plugin commands are run by Squad; `copilot.requires` is dependency metadata only.
 - No external package install hints or MCP setup hints are run by Squad; `repository`, `upstream`, and `mcp` fields are metadata only.

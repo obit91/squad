@@ -9,6 +9,7 @@ import {
   type PluginFileDeployment,
   type PluginProviderContract,
   type PluginRepositoryMetadata,
+  type PluginRuntimeManifest,
   type PluginUpstreamMetadata,
   type SquadPluginManifest,
 } from './plugin-manifest.js';
@@ -36,6 +37,7 @@ export interface InstalledPlugin {
   upstream?: PluginUpstreamMetadata;
   mcp?: PluginMcpMetadata;
   providers?: PluginProviderContract[];
+  runtime?: PluginRuntimeManifest;
   files: InstalledPluginFile[];
 }
 
@@ -73,7 +75,10 @@ export type PluginAuditEventType =
   | 'disable'
   | 'switch'
   | 'uninstall'
-  | 'verify';
+  | 'verify'
+  | 'provider_invoked'
+  | 'provider_error'
+  | 'execution_blocked';
 
 export interface PluginAuditEvent {
   type: PluginAuditEventType;
@@ -222,6 +227,7 @@ export function upsertInstalledPlugin(
     upstream: manifest.upstream,
     mcp: manifest.mcp,
     providers: manifest.providers,
+    runtime: manifest.runtime,
     files: options.files,
   };
 

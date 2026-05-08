@@ -14,6 +14,8 @@ import {
   appendAuditEvent,
   createPluginInstallPlan,
   describePluginFile,
+  executeLifecycleHook,
+  isLifecycleEventName,
   parsePluginManifestContent,
   readPluginStates,
   removeInstalledPlugin,
@@ -413,6 +415,79 @@ async function runPluginLifecycle(dest: string, squadDir: string, args: string[]
     return;
   }
 
+  if (action === 'refresh' || action === 'run-lifecycle') {
+    const pluginId = args[1];
+    const lifecycleEvent = action === 'refresh' ? 'onMemoryRefresh' : args[2];
+
+    if (!pluginId) {
+      fatal(`Usage: squad plugin ${action} <plugin-id>${action === 'run-lifecycle' ? ' <lifecycle-event>' : ''}`);
+    }
+
+    if (action === 'run-lifecycle' && !lifecycleEvent) {
+      fatal('Usage: squad plugin run-lifecycle <plugin-id> <lifecycle-event>');
+    }
+
+    const states = await readPluginStates(stateStorage, squadDir);
+    const plugin = states.installed.plugins.find((p) => p.id === pluginId);
+
+    if (!plugin) {
+      fatal(`Plugin "${pluginId}" is not installed`);
+    }
+
+    if (!plugin.enabled) {
+      fatal(`Plugin "${pluginId}" is disabled. Enable it first with: squad plugin enable ${pluginId}`);
+    }
+
+    const runtime = plugin.runtime;
+    if (!runtime?.capabilities || runtime.capabilities.length === 0) {
+      fatal(`Plugin "${pluginId}" has no runtime capabilities`);
+    }
+
+    let lifecycle = 'onMemoryRefresh';
+    if (action === 'run-lifecycle') {
+      if (!lifecycleEvent) {
+        fatal('Usage: squad plugin run-lifecycle <plugin-id> <lifecycle-event>');
+      }
+      lifecycle = lifecycleEvent;
+    }
+    if (!isLifecycleEventName(lifecycle)) {
+      fatal(`Unsupported lifecycle event "${lifecycle}". Allowed events: onInstall, onEnable, onDisable, onBeforeSpawn, onAfterTask, onMemoryRefresh`);
+    }
+
+    console.log(`${DIM}Executing ${lifecycle} lifecycle for ${plugin.id}...${RESET}`);
+    const results = await executeLifecycleHook(
+      plugin.id,
+      plugin.version,
+      lifecycle,
+      runtime.capabilities,
+      stateStorage,
+      squadDir,
+      states.audit
+    );
+
+    await writePluginStates(stateStorage, states, squadDir);
+
+    if (results.length === 0) {
+      info(`${DIM}No runtime operations executed for lifecycle ${lifecycle}${RESET}`);
+      return;
+    }
+
+    for (const result of results) {
+      if (result.success) {
+        success(result.message);
+        if (result.artifactsGenerated.length > 0) {
+          console.log(`${DIM}Generated artifacts:${RESET}`);
+          for (const artifact of result.artifactsGenerated) {
+            console.log(`  - ${artifact}`);
+          }
+        }
+      } else {
+        warn(`${result.message}${result.error ? `: ${result.error}` : ''}`);
+      }
+    }
+    return;
+  }
+
   fatal(pluginUsage());
 }
 
@@ -523,7 +598,7 @@ function safeJoin(root: string, relativePath: string): string {
 }
 
 function pluginUsage(): string {
-  return 'Usage: squad plugin marketplace add|remove|list|browse OR squad plugin validate|dry-run|install|uninstall|enable|disable|switch|list|verify';
+  return 'Usage: squad plugin marketplace add|remove|list|browse OR squad plugin validate|dry-run|install|uninstall|enable|disable|switch|list|verify|refresh|run-lifecycle';
 }
 
 function printCopilotDependencies(copilot: ReturnType<typeof parsePluginManifestContent>['copilot']): void {
