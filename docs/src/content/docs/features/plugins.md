@@ -34,6 +34,8 @@ squad plugin list
 squad plugin list --json
 squad plugin enable my-plugin
 squad plugin switch memory my-plugin
+squad plugin refresh my-plugin
+squad plugin run-lifecycle my-plugin onMemoryRefresh
 squad plugin disable my-plugin
 squad plugin verify
 squad plugin uninstall my-plugin
@@ -153,7 +155,9 @@ Provider contracts are the typed extension seam for memory and knowledge systems
 
 Enabled plugins affect spawned Squad agents through their installed static artifacts and provider contracts. When an agent session is spawned, Squad reads `.squad/plugins/runtime.json`, finds enabled active plugin roles, and injects the installed guidance/metadata files plus provider contract summaries into the agent system context under a `Plugin Context` section.
 
-This is still declarative-only behavior: Squad consumes copied Markdown/metadata from `.squad/`, but it does not install upstream packages, start MCP servers, execute plugin commands, call provider tools, or query external tools during plugin install or agent spawn.
+This is still declarative-first behavior: Squad consumes copied Markdown/metadata from `.squad/`, but it does not install upstream packages, start MCP servers, execute plugin-supplied commands, call provider tools, or query external tools during plugin install or agent spawn.
+
+The MVP also includes a narrow governed runtime for Squad-owned built-in providers. `squad plugin refresh <plugin-id>` and `squad plugin run-lifecycle <plugin-id> <event>` can generate artifacts only when the provider name, lifecycle event, and output paths are allowlisted by Squad. The current approved provider is Graphify, which can refresh deterministic knowledge artifacts under `.squad/knowledge/graphify/`.
 
 Disabled plugins do not contribute prompt context, even if their files remain installed on disk.
 
@@ -199,8 +203,11 @@ The MVP security gate is strict:
 - Provider contracts are metadata only; they do not authorize live provider calls.
 - Plugin file writes are limited to declared relative targets under `.squad/`.
 - Path traversal, absolute paths, symlinks, and script/executable extensions are rejected.
+- Governed runtime artifacts are generated only by built-in approved providers and only under approved `.squad/` paths.
 
 See [Plugin security model](../reference/plugin-security.md) for the threat model and the negative checks that gate this feature.
+
+The follow-up roadmap tracks remote marketplace distribution, broader built-in providers, and the trusted executable-provider RFC in [#1102](https://github.com/bradygaster/squad/issues/1102), [#1103](https://github.com/bradygaster/squad/issues/1103), [#1104](https://github.com/bradygaster/squad/issues/1104), and [#1105](https://github.com/bradygaster/squad/issues/1105).
 
 ---
 

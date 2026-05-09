@@ -47,6 +47,13 @@ Runtime artifact generation commands (`refresh`, `run-lifecycle`) add a new capa
 - **Still denied:** arbitrary provider execution, shell commands, package installs, network calls, MCP server startup, plugin-provided executable code, or modifications to plugin-supplied content.
 - **Allowed under governance:** Built-in approved providers (Graphify) generating artifacts to approved output paths through designated lifecycle events only.
 
+The next executable-provider roadmap is tracked in:
+
+- [Epic #1102](https://github.com/bradygaster/squad/issues/1102)
+- [Phase 1 marketplace distribution #1103](https://github.com/bradygaster/squad/issues/1103)
+- [Phase 2 built-in providers #1104](https://github.com/bradygaster/squad/issues/1104)
+- [Phase 3 executable runtime RFC #1105](https://github.com/bradygaster/squad/issues/1105)
+
 ---
 
 ## Audit and rollback
