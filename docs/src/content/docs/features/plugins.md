@@ -2,7 +2,19 @@
 
 > ⚠️ **Experimental** — Squad is alpha software. APIs, commands, and behavior may change between releases.
 
-Plugins package reusable Squad capabilities such as agents, knowledge packs, workflows, ceremonies, memory providers, routing guidance, decisions, hook metadata, adapter metadata, and typed provider contracts. The MVP is intentionally conservative: plugins are declarative static-file bundles. Squad records hook, adapter, and provider metadata, but it does not execute plugin-supplied code.
+Plugins package reusable Squad capabilities: agents, knowledge packs, workflows, ceremonies, memory providers, routing guidance, decisions, hook metadata, adapter metadata, typed provider contracts, and generated knowledge artifacts.
+
+The everyday flow is simple:
+
+```bash
+squad plugin install ./my-plugin
+squad plugin enable my-plugin
+squad plugin refresh my-plugin
+```
+
+After that, spawned agents can receive the plugin's enabled context. For a knowledge plugin such as Graphify, refresh can generate approved artifacts under `.squad/knowledge/graphify/` so agents have a relationship map across code, docs, and decisions.
+
+The MVP is declarative-first with a narrow governed runtime for Squad-owned built-in providers. Squad records hook, adapter, and provider metadata, and approved providers can generate static artifacts. It does not execute plugin-supplied code.
 
 Squad plugins do not replace Copilot plugins or Copilot skills. If a Squad plugin depends on Copilot-owned extensibility, declare that under `copilot.requires`; Squad records and surfaces the dependency, but it does not install it or run Copilot plugin commands.
 
@@ -10,15 +22,16 @@ Squad plugins do not replace Copilot plugins or Copilot skills. If a Squad plugi
 
 ## Plugin lifecycle
 
-Install and activation are separate steps.
+Install, activation, and artifact refresh are separate steps.
 
 1. `squad plugin validate <local-plugin-dir>` checks the manifest and prints structured validation errors.
 2. `squad plugin dry-run <local-plugin-dir>` prints the files that would be written without changing `.squad/`.
 3. `squad plugin install <local-plugin-dir>` copies declared static files, records hashes in `.squad/plugins/lock.json`, and leaves the plugin disabled.
 4. `squad plugin enable <plugin-id>` activates the plugin roles declared in its manifest.
 5. `squad plugin switch <role> <plugin-id>` makes an enabled plugin active for a role such as `memory` or `knowledge`.
-6. `squad plugin disable <plugin-id>` deactivates a plugin without deleting installed files.
-7. `squad plugin uninstall <plugin-id>` removes files recorded in the lock and clears the registration.
+6. `squad plugin refresh <plugin-id>` refreshes approved generated artifacts for built-in providers such as Graphify.
+7. `squad plugin disable <plugin-id>` deactivates a plugin without deleting installed files.
+8. `squad plugin uninstall <plugin-id>` removes files recorded in the lock and clears the registration.
 
 Use `squad plugin list --json` when another tool needs stable machine-readable state.
 
@@ -190,9 +203,9 @@ Squad stores plugin state under `.squad/plugins/`:
 
 ---
 
-## Security posture
+## Guardrails
 
-The MVP security gate is strict:
+The product goal is simple pluggability: install, enable, refresh, and give agents better context. The guardrails keep that model predictable:
 
 - No plugin scripts, commands, shell snippets, or executable files are allowed.
 - Lifecycle hooks are limited to Squad-owned, capability-gated providers that generate static artifacts.

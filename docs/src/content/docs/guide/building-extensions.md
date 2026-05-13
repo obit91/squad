@@ -2,15 +2,15 @@
 
 > ⚠️ **Experimental** — Squad is alpha software. APIs, commands, and behavior may change between releases.
 
-You've decided your idea is a Squad Extension (Layer 2). Now build one in five minutes.
+You've decided your idea is a Squad Extension (Layer 2). Now package it so another team can install it, enable it, and give their agents better context in five minutes.
 
 ---
 
 ## What is an extension?
 
-An extension is a reusable collection of Squad agents, knowledge, workflows, ceremonies, and directives that any team can install. It lives outside Squad core, packaged as a GitHub repository or marketplace plugin. Extensions let you codify workflows (the client-delivery pattern), domain expertise (Azure deployment strategies), or testing ceremonies that other teams benefit from.
+An extension is a reusable collection of Squad agents, knowledge, workflows, ceremonies, memory guidance, provider contracts, generated artifacts, and directives that any team can install. It lives outside Squad core, packaged as a GitHub repository or marketplace plugin. Extensions let you codify workflows, domain expertise, memory lenses, knowledge graphs, or testing ceremonies that other teams benefit from.
 
-If your extension needs a Copilot plugin, declare it as a dependency in the manifest. If it points to an external CLI, package, or MCP server, record that in `repository`, `upstream`, or `mcp` metadata. Squad does not install packages, run external commands, start MCP servers, or manage Copilot plugins.
+If your extension needs a Copilot plugin, declare it as a dependency in the manifest. If it points to an external CLI, package, or MCP server, record that in `repository`, `upstream`, or `mcp` metadata. If it uses an approved built-in provider such as Graphify, `squad plugin refresh` can generate artifacts for agents to consume. Squad does not install external packages, run plugin-supplied commands, start MCP servers, or manage Copilot plugins.
 
 ---
 
@@ -156,7 +156,7 @@ squad plugin enable my-extension
 
 **Step 8: Test locally**
 
-Run `squad plugin verify`, load your Squad session, and verify the installed Squad knowledge/workflows appear and work as expected. If you declared Copilot dependencies, verify those are installed separately through Copilot.
+Run `squad plugin verify`, then run `squad plugin refresh <plugin-id>` if your plugin declares an approved built-in provider. Load your Squad session and verify the installed Squad knowledge, workflows, and generated artifacts appear and work as expected. If you declared Copilot dependencies, verify those are installed separately through Copilot.
 
 ---
 
