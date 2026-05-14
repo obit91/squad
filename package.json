@@ -13,6 +13,8 @@
     "sync-templates": "node scripts/sync-templates.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "bench": "node scripts/run-benchmarks.mjs",
+    "bench:cold-start": "node scripts/measure-cold-start.mjs",
     "lint": "tsc --noEmit -p packages/squad-sdk/tsconfig.json && tsc --noEmit -p packages/squad-cli/tsconfig.json",
     "lint:eslint": "eslint packages/ test/",
     "lint:docs": "markdownlint-cli2 && cspell --no-progress --dot \"docs/src/content/**/*.md\" \"README.md\"",
