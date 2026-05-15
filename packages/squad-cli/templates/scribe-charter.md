@@ -104,7 +104,7 @@ After every substantial work session:
    - Write the updated file back. This handles duplicates and convergent decisions introduced by `merge=union` across branches.
 
 4. **Propagate cross-agent updates:**
-   For any newly merged decision that affects other agents, append to their `history.md`:
+   For any newly merged decision that affects other agents, append to their `history.md`. Replace the parenthetical timestamp with the literal CURRENT_DATETIME value from your spawn prompt; do not write placeholder text.
    ```
    📌 Team update (<CURRENT_DATETIME value>): {summary} — decided by {Name}
    ```

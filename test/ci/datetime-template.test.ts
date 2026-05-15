@@ -61,6 +61,7 @@ describe('current datetime template contract', () => {
     expect(scribeCharter).not.toContain('({timestamp})');
     expect(scribeCharter).toContain('### <CURRENT_DATETIME value>:');
     expect(scribeCharter).toContain('Substitute the actual timestamp');
-    expect(scribeCharter).toContain('📌 Team update (<CURRENT_DATETIME value>):');
+    expect(scribeCharter).toContain('Replace the parenthetical timestamp with the literal CURRENT_DATETIME value');
+    expect(scribeCharter).toContain('do not write placeholder text');
   });
 });
