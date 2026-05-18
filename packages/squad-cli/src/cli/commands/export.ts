@@ -16,6 +16,8 @@ interface ExportManifest {
   casting: Record<string, unknown>;
   agents: Record<string, { charter?: string; history?: string }>;
   skills: string[];
+  decisions?: string;
+  team?: string;
 }
 
 /**
@@ -36,8 +38,19 @@ export async function runExport(dest: string, outPath?: string): Promise<void> {
     squad_version: '0.6.0',
     casting: {},
     agents: {},
-    skills: []
+    skills: [],
   };
+
+  // Read top-level squad files (decisions.md, team.md)
+  const decisionsMd = path.join(squadInfo.path, 'decisions.md');
+  const decisionsContent = storage.readSync(decisionsMd);
+  if (decisionsContent !== undefined) {
+    manifest.decisions = decisionsContent;
+  }
+  const teamContent = storage.readSync(teamMd);
+  if (teamContent !== undefined) {
+    manifest.team = teamContent;
+  }
 
   // Read casting state
   const castingDir = path.join(squadInfo.path, 'casting');

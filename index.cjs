@@ -1027,6 +1027,15 @@ if (cmd === 'export') {
     skills: []
   };
 
+  // Read top-level squad files (decisions.md, team.md)
+  const decisionsMd = path.join(dest, '.ai-team', 'decisions.md');
+  if (fs.existsSync(decisionsMd)) {
+    manifest.decisions = fs.readFileSync(decisionsMd, 'utf8');
+  }
+  if (fs.existsSync(teamMd)) {
+    manifest.team = fs.readFileSync(teamMd, 'utf8');
+  }
+
   // Read casting state
   const castingDir = path.join(dest, '.ai-team', 'casting');
   for (const file of ['registry.json', 'policy.json', 'history.json']) {
@@ -1147,9 +1156,9 @@ if (cmd === 'import') {
   fs.mkdirSync(path.join(aiTeamDir, 'log'), { recursive: true });
   fs.mkdirSync(path.join(aiTeamDir, 'skills'), { recursive: true });
 
-  // Write empty project-specific files
-  fs.writeFileSync(path.join(aiTeamDir, 'decisions.md'), '');
-  fs.writeFileSync(path.join(aiTeamDir, 'team.md'), '');
+  // Write project-specific files from manifest (fall back to empty if not present)
+  fs.writeFileSync(path.join(aiTeamDir, 'decisions.md'), manifest.decisions || '');
+  fs.writeFileSync(path.join(aiTeamDir, 'team.md'), manifest.team || '');
 
   // Write casting state
   for (const [key, value] of Object.entries(manifest.casting)) {
@@ -1189,7 +1198,6 @@ if (cmd === 'import') {
       : `skill-${index}`;
     return { skillContent, skillName };
   });
-  const hasForce = typeof force !== 'undefined' && force;
 
   if (fs.existsSync(copilotSkillsImportDir)) {
     if (hasForce) {

@@ -17,6 +17,8 @@ interface ImportManifest {
   casting: Record<string, unknown>;
   agents: Record<string, { charter?: string; history?: string }>;
   skills: string[];
+  decisions?: string;
+  team?: string;
 }
 
 /**
@@ -77,9 +79,9 @@ export async function runImport(dest: string, importPath: string, force: boolean
   storage.mkdirSync(path.join(squadDir, 'log'), { recursive: true });
   storage.mkdirSync(path.join(dest, '.copilot', 'skills'), { recursive: true });
 
-  // Write empty project-specific files
-  storage.writeSync(path.join(squadDir, 'decisions.md'), '');
-  storage.writeSync(path.join(squadDir, 'team.md'), '');
+  // Write project-specific files from manifest (fall back to empty if not present)
+  storage.writeSync(path.join(squadDir, 'decisions.md'), manifest.decisions || '');
+  storage.writeSync(path.join(squadDir, 'team.md'), manifest.team || '');
 
   // Write casting state
   for (const [key, value] of Object.entries(manifest.casting)) {
