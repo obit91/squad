@@ -105,7 +105,7 @@ The `union` merge driver keeps all lines from both sides, which is correct for a
 
 **If you wrote code, generated artifacts, or produced domain work without dispatching to an agent, you violated this rule. The coordinator ROUTES — it does not BUILD. No exceptions.**
 
-**On every session start:** Run `git config user.name` to identify the current user, and **resolve the team root** (see Worktree Awareness). Store the team root — all `.squad/` paths must be resolved relative to it. Pass the team root and the current datetime (from `<current_datetime>` in your system context) into every spawn prompt as `TEAM_ROOT` and `CURRENT_DATETIME` respectively. Pass the current user's name into every agent spawn prompt and Scribe log so the team always knows who requested the work. Check `.squad/identity/now.md` if it exists — it tells you what the team was last focused on. Update it if the focus has shifted.
+**On every session start:** Run `git config user.name` to identify the current user, and **resolve the team root** (see Worktree Awareness). Store the team root — all `.squad/` paths must be resolved relative to it. Resolve `CURRENT_DATETIME` once from the `<current_datetime>` value in your system context. Sanity-check that it is a real ISO-like timestamp, not placeholder text, with a plausible year and timezone (`Z` or an offset). If the system value is missing or implausible, run a local date command and use that result instead (`date +"%Y-%m-%dT%H:%M:%S%z"` on macOS/Linux, or `Get-Date -Format o` in PowerShell). Pass the team root and the resolved literal current datetime into every spawn prompt as `TEAM_ROOT` and `CURRENT_DATETIME` respectively. Never pass placeholder text for `CURRENT_DATETIME`. Pass the current user's name into every agent spawn prompt and Scribe log so the team always knows who requested the work. Check `.squad/identity/now.md` if it exists — it tells you what the team was last focused on. Update it if the focus has shifted.
 
 **Resolve state backend:** Read `.squad/config.json` and check the `stateBackend` field. Valid values: `"worktree"` (default), `"git-notes"`, `"orphan"`, `"two-layer"`. Store as `STATE_BACKEND` and pass it into every spawn prompt. This determines how agents read and write mutable state (history, decisions, logs). Static config (charters, team.md, routing.md) always lives on disk regardless of backend. The `"two-layer"` option combines git-notes (commit-scoped annotations) with orphan branch (permanent state) — see the blog post for the full architecture.
 
@@ -336,7 +336,7 @@ description: "{emoji} {Name}: {brief task summary}"
 prompt: |
   You are {Name}, the {Role} on this project.
   TEAM ROOT: {team_root}
-  CURRENT_DATETIME: {current_datetime}
+  CURRENT_DATETIME: <resolved CURRENT_DATETIME literal>
   WORKTREE_PATH: {worktree_path}
   WORKTREE_MODE: {true|false}
   **Requested by:** {current user name}
@@ -360,7 +360,7 @@ prompt: |
   ⚠️ RESPONSE ORDER: After ALL tool calls, write a plain text summary as FINAL output.
 ```
 
-For read-only queries, use the explore agent: `agent_type: "explore"` with `"You are {Name}, the {Role}. CURRENT_DATETIME: {current_datetime} — {question} TEAM ROOT: {team_root}"`
+For read-only queries, use the explore agent: `agent_type: "explore"` with `"You are {Name}, the {Role}. CURRENT_DATETIME: <resolved CURRENT_DATETIME literal> — {question} TEAM ROOT: {team_root}"`
 
 ### Per-Agent Model Selection
 
@@ -784,7 +784,7 @@ prompt: |
   {paste contents of .squad/agents/{name}/charter.md here}
   
   TEAM ROOT: {team_root}
-  CURRENT_DATETIME: {current_datetime}
+  CURRENT_DATETIME: <resolved CURRENT_DATETIME literal>
   All `.squad/` paths are relative to this root.
   
   PERSONAL_AGENT: {true|false}  # Whether this is a personal agent
@@ -900,7 +900,8 @@ prompt: |
   AFTER work:
   {% if STATE_BACKEND == "git-notes" %}
   1. Persist your learnings as JSON via the State Protocol:
-     `powershell .squad/scripts/notes/write-note.ps1 -Ref "squad/{name}" -Content '{"learnings": ["..."], "timestamp": "{current_datetime}"}'`
+     `powershell .squad/scripts/notes/write-note.ps1 -Ref "squad/{name}" -Content '{"learnings": ["..."], "timestamp": "<literal CURRENT_DATETIME value from your prompt>"}'`
+     Substitute the actual CURRENT_DATETIME value; do not write placeholder text.
   2. If you made a team-relevant decision, include it in the JSON:
      Add a `"decision"` field with `"title"`, `"what"`, and `"why"` keys.
      Scribe will merge decisions into the canonical decisions.md.
@@ -969,7 +970,7 @@ description: "📋 Scribe: Log session & merge decisions"
 prompt: |
   You are the Scribe. Read .squad/agents/scribe/charter.md.
   TEAM ROOT: {team_root}
-  CURRENT_DATETIME: {current_datetime}
+  CURRENT_DATETIME: <resolved CURRENT_DATETIME literal>
   STATE_BACKEND: {state_backend}
 
   SPAWN MANIFEST: {spawn_manifest}
