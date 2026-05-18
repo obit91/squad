@@ -16,6 +16,9 @@ interface ImportManifest {
   version: string;
   exported_at?: string;
   squad_version?: string;
+  team_md?: string;
+  decisions_md?: string;
+  routing_md?: string;
   casting: Record<string, unknown>;
   agents: Record<string, { charter?: string; history?: string }>;
   skills: string[];
@@ -24,6 +27,24 @@ interface ImportManifest {
 export interface ImportRepoOptions {
   repo: string;
   branch?: string;
+}
+
+/** Validate that a name is a safe slug (no path traversal or special characters). */
+function isSafeSlug(name: string): boolean {
+  if (!name) return false;
+  if (name.includes('..') || name.includes('/') || name.includes('\\')) return false;
+  if (name.startsWith('.') || name.startsWith('-')) return false;
+  // Only allow alphanumeric, hyphens, underscores, and dots (not leading)
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name);
+}
+
+/** Validate that a resolved path is under the expected parent directory. */
+function assertPathUnder(resolvedPath: string, parentDir: string): void {
+  const normalizedChild = path.resolve(resolvedPath);
+  const normalizedParent = path.resolve(parentDir);
+  if (!normalizedChild.startsWith(normalizedParent + path.sep) && normalizedChild !== normalizedParent) {
+    throw new Error(`Path traversal detected: "${resolvedPath}" escapes "${parentDir}"`);
+  }
 }
 
 /**
@@ -59,8 +80,11 @@ function applyManifest(
   storage.mkdirSync(path.join(dest, '.copilot', 'skills'), { recursive: true });
 
   // Write empty project-specific files
-  storage.writeSync(path.join(squadDir, 'decisions.md'), '');
-  storage.writeSync(path.join(squadDir, 'team.md'), '');
+  storage.writeSync(path.join(squadDir, 'decisions.md'), manifest.decisions_md ?? '');
+  storage.writeSync(path.join(squadDir, 'team.md'), manifest.team_md ?? '');
+  if (manifest.routing_md !== undefined) {
+    storage.writeSync(path.join(squadDir, 'routing.md'), manifest.routing_md);
+  }
 
   // Write casting state
   for (const [key, value] of Object.entries(manifest.casting)) {
@@ -76,8 +100,12 @@ function applyManifest(
   // Write agents
   const agentNames = Object.keys(manifest.agents);
   for (const name of agentNames) {
+    if (!isSafeSlug(name)) {
+      fatal(`Invalid agent name "${name}": must be a safe slug (alphanumeric, hyphens, underscores)`);
+    }
     const agent = manifest.agents[name]!;
     const agentDir = path.join(squadDir, 'agents', name);
+    assertPathUnder(agentDir, path.join(squadDir, 'agents'));
 
     if (agent.charter) {
       storage.writeSync(path.join(agentDir, 'charter.md'), agent.charter);
@@ -95,10 +123,16 @@ function applyManifest(
   // Write skills
   for (const skillContent of manifest.skills) {
     const nameMatch = skillContent.match(/^name:\s*["']?(.+?)["']?\s*$/m);
-    const skillName = nameMatch
+    let skillName = nameMatch
       ? nameMatch[1]!.trim().toLowerCase().replace(/\s+/g, '-')
       : `skill-${manifest.skills.indexOf(skillContent)}`;
+    // Sanitize skill name to prevent path traversal
+    skillName = skillName.replace(/[^a-z0-9._-]/g, '-').replace(/^[.-]+/, '');
+    if (!skillName || !isSafeSlug(skillName)) {
+      skillName = `skill-${manifest.skills.indexOf(skillContent)}`;
+    }
     const skillDir = path.join(dest, '.copilot', 'skills', skillName);
+    assertPathUnder(skillDir, path.join(dest, '.copilot', 'skills'));
     storage.writeSync(path.join(skillDir, 'SKILL.md'), skillContent);
   }
 

@@ -15,6 +15,9 @@ interface ExportManifest {
   version: string;
   exported_at: string;
   squad_version: string;
+  team_md?: string;
+  decisions_md?: string;
+  routing_md?: string;
   casting: Record<string, unknown>;
   agents: Record<string, { charter?: string; history?: string }>;
   skills: string[];
@@ -37,6 +40,19 @@ function buildManifest(dest: string, storage: FSStorageProvider, squadInfo: { pa
     agents: {},
     skills: []
   };
+
+  // Read top-level squad files (team.md, decisions.md, routing.md)
+  const teamMdPath = path.join(squadInfo.path, 'team.md');
+  const teamMdContent = storage.readSync(teamMdPath);
+  if (teamMdContent !== undefined) manifest.team_md = teamMdContent;
+
+  const decisionsMdPath = path.join(squadInfo.path, 'decisions.md');
+  const decisionsMdContent = storage.readSync(decisionsMdPath);
+  if (decisionsMdContent !== undefined) manifest.decisions_md = decisionsMdContent;
+
+  const routingMdPath = path.join(squadInfo.path, 'routing.md');
+  const routingMdContent = storage.readSync(routingMdPath);
+  if (routingMdContent !== undefined) manifest.routing_md = routingMdContent;
 
   // Read casting state
   const castingDir = path.join(squadInfo.path, 'casting');
