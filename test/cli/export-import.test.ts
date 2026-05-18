@@ -230,6 +230,26 @@ describe('CLI: export/import commands', () => {
     expect(importedPolicy).toEqual(policyData);
   });
 
+  it('should preserve routing.md through export and import round-trip', async () => {
+    const teamPath = join(TEST_ROOT, '.squad', 'team.md');
+    await writeFile(teamPath, '# Team\n');
+    
+    // Create routing.md with rich content
+    const routingContent = '# Routing Rules\n\n| Pattern | Agent |\n|---------|-------|\n| build/* | fenster |\n| docs/* | pao |\n\n## Principles\n\n1. Eager by default\n2. Scribe always runs\n';
+    await writeFile(join(TEST_ROOT, '.squad', 'routing.md'), routingContent);
+    
+    // Export and import
+    const exportPath = join(TEST_ROOT, 'squad-export.json');
+    await runExport(TEST_ROOT, exportPath);
+    await runImport(IMPORT_ROOT, exportPath, false);
+    
+    // Verify routing.md was faithfully preserved
+    const importedRoutingPath = join(IMPORT_ROOT, '.squad', 'routing.md');
+    expect(existsSync(importedRoutingPath)).toBe(true);
+    const importedRouting = await readFile(importedRoutingPath, 'utf-8');
+    expect(importedRouting).toBe(routingContent);
+  });
+
   it('should mark history as imported with source info', async () => {
     const teamPath = join(TEST_ROOT, '.squad', 'team.md');
     await writeFile(teamPath, '# Team\n');
