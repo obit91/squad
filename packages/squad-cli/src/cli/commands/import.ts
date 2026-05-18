@@ -83,7 +83,7 @@ export async function runImport(dest: string, importPath: string, force: boolean
   storage.writeSync(path.join(squadDir, 'team.md'), '');
 
   // Write routing.md if present in manifest
-  if (manifest.routing) {
+  if (manifest.routing !== undefined) {
     storage.writeSync(path.join(squadDir, 'routing.md'), manifest.routing);
   }
 
