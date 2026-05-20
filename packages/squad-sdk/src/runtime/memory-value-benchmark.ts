@@ -109,8 +109,8 @@ export function createDefaultMemoryValueFixture(): MemoryValueFixture {
       },
       {
         id: 'never-secret',
-        title: 'Rejected credential',
-        content: 'password=do-not-load-this-secret',
+        title: 'Rejected credential placeholder',
+        content: 'Redacted credential-like placeholder used only to prove NEVER-load exclusion.',
         loadGuidance: 'NEVER',
         status: 'deleted',
         tags: ['security', 'secret'],

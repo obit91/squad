@@ -26,6 +26,8 @@ export interface MemoryGovernanceConfig {
     rejectForbidden: true;
     rejectTransientDurableWrites: true;
     auditContent: false;
+    auditMaxBytes: number;
+    auditMaxArchives: number;
   };
 }
 
@@ -60,19 +62,20 @@ export interface MemorySearchResult {
   title: string;
   path: string;
   snippet: string;
-  provider?: 'local' | 'hostInjectedCopilotAdapter' | 'copilot';
+  provider?: string;
+  score?: number;
 }
 
 export interface MemoryAuditRecord {
   timestamp: string;
-  action: 'classify' | 'write' | 'reject' | 'promote' | 'delete' | 'search' | 'configure';
+  action: 'classify' | 'write' | 'reject' | 'promote' | 'delete' | 'search' | 'configure' | 'provider-error';
   id?: string;
   class?: MemoryClass;
   title?: string;
   path?: string;
   reason?: string;
   actor?: string;
-  provider?: 'local' | 'hostInjectedCopilotAdapter' | 'copilot';
+  provider?: string;
 }
 
 export interface CopilotMemoryProviderWriteRequest {
@@ -93,6 +96,12 @@ export interface CopilotMemoryProviderSearchResult {
   title: string;
   snippet: string;
   path?: string;
+}
+
+export interface MemoryProviderSearchResult extends CopilotMemoryProviderSearchResult {
+  class: MemoryClass;
+  loadGuidance: MemoryLoadGuidance;
+  score?: number;
 }
 
 export interface CopilotMemoryProviderClient {
@@ -129,7 +138,7 @@ export interface MemoryProvider {
   readonly supportedClasses: ReadonlyArray<MemoryClass>;
   status(): Promise<MemoryProviderStatus>;
   write(request: CopilotMemoryProviderWriteRequest): Promise<CopilotMemoryProviderWriteResult>;
-  search(query: string): Promise<CopilotMemoryProviderSearchResult[]>;
+  search(query: string): Promise<MemoryProviderSearchResult[]>;
   delete(id: string): Promise<boolean>;
 }
 
@@ -154,9 +163,13 @@ export class MemPalaceMemoryProvider implements MemoryProvider {
     title: string;
     content: string;
     class: MemoryClass;
+    loadGuidance: MemoryLoadGuidance;
     locus: string;
     path: string;
+    createdAt: number;
   }>();
+
+  constructor(private readonly maxEntries = 500) {}
 
   async status(): Promise<MemoryProviderStatus> {
     return { id: this.id, name: this.name, available: true };
@@ -164,35 +177,43 @@ export class MemPalaceMemoryProvider implements MemoryProvider {
 
   async write(request: CopilotMemoryProviderWriteRequest): Promise<CopilotMemoryProviderWriteResult> {
     const id = `mempalace-${randomUUID()}`;
-    const locus = request.metadata?.['locus'] ?? 'default';
+    const locus = providerPathSegment(request.metadata?.['locus'] ?? 'default');
     this.loci.set(id, {
       id,
       title: request.title,
       content: request.content,
       class: request.classification.class,
+      loadGuidance: request.classification.loadGuidance,
       locus,
       path: `mempalace:${locus}:${id}`,
+      createdAt: Date.now(),
     });
+    evictOldest(this.loci, this.maxEntries);
     return { id, path: `mempalace:${locus}:${id}` };
   }
 
-  async search(query: string): Promise<CopilotMemoryProviderSearchResult[]> {
+  async search(query: string): Promise<MemoryProviderSearchResult[]> {
     const normalized = query.toLowerCase();
-    const results: CopilotMemoryProviderSearchResult[] = [];
+    const results: MemoryProviderSearchResult[] = [];
     for (const entry of this.loci.values()) {
+      const score = providerRelevanceScore(entry.title, entry.content, normalized);
       if (
         entry.title.toLowerCase().includes(normalized) ||
-        entry.content.toLowerCase().includes(normalized)
+        entry.content.toLowerCase().includes(normalized) ||
+        score > 0
       ) {
         results.push({
           id: entry.id,
           title: entry.title,
           snippet: (entry.content.split('\n').find(l => l.toLowerCase().includes(normalized)) ?? entry.title).slice(0, 240),
           path: entry.path,
+          class: entry.class,
+          loadGuidance: entry.loadGuidance,
+          score,
         });
       }
     }
-    return results;
+    return results.sort((left, right) => (right.score ?? 0) - (left.score ?? 0) || left.id.localeCompare(right.id));
   }
 
   async delete(id: string): Promise<boolean> {
@@ -226,9 +247,13 @@ export class IndexServerMemoryProvider implements MemoryProvider {
     title: string;
     content: string;
     class: MemoryClass;
+    loadGuidance: MemoryLoadGuidance;
     topic: string;
     path: string;
+    createdAt: number;
   }>();
+
+  constructor(private readonly maxEntries = 500) {}
 
   async status(): Promise<MemoryProviderStatus> {
     return { id: this.id, name: this.name, available: true };
@@ -236,35 +261,43 @@ export class IndexServerMemoryProvider implements MemoryProvider {
 
   async write(request: CopilotMemoryProviderWriteRequest): Promise<CopilotMemoryProviderWriteResult> {
     const id = `indexserver-${randomUUID()}`;
-    const topic = request.metadata?.['topic'] ?? request.classification.class.toLowerCase();
+    const topic = providerPathSegment(request.metadata?.['topic'] ?? request.classification.class.toLowerCase());
     this.catalog.set(id, {
       id,
       title: request.title,
       content: request.content,
       class: request.classification.class,
+      loadGuidance: request.classification.loadGuidance,
       topic,
       path: `indexserver:${topic}:${id}`,
+      createdAt: Date.now(),
     });
+    evictOldest(this.catalog, this.maxEntries);
     return { id, path: `indexserver:${topic}:${id}` };
   }
 
-  async search(query: string): Promise<CopilotMemoryProviderSearchResult[]> {
+  async search(query: string): Promise<MemoryProviderSearchResult[]> {
     const normalized = query.toLowerCase();
-    const results: CopilotMemoryProviderSearchResult[] = [];
+    const results: MemoryProviderSearchResult[] = [];
     for (const entry of this.catalog.values()) {
+      const score = providerRelevanceScore(entry.title, entry.content, normalized);
       if (
         entry.title.toLowerCase().includes(normalized) ||
-        entry.content.toLowerCase().includes(normalized)
+        entry.content.toLowerCase().includes(normalized) ||
+        score > 0
       ) {
         results.push({
           id: entry.id,
           title: entry.title,
           snippet: (entry.content.split('\n').find(l => l.toLowerCase().includes(normalized)) ?? entry.title).slice(0, 240),
           path: entry.path,
+          class: entry.class,
+          loadGuidance: entry.loadGuidance,
+          score,
         });
       }
     }
-    return results;
+    return results.sort((left, right) => (right.score ?? 0) - (left.score ?? 0) || left.id.localeCompare(right.id));
   }
 
   async delete(id: string): Promise<boolean> {
@@ -319,6 +352,8 @@ const DEFAULT_CONFIG: MemoryGovernanceConfig = {
     rejectForbidden: true,
     rejectTransientDurableWrites: true,
     auditContent: false,
+    auditMaxBytes: 1_048_576,
+    auditMaxArchives: 3,
   },
 };
 
@@ -348,6 +383,34 @@ function slugify(value: string): string {
     .replace(/^-|-$/g, '')
     .slice(0, 64);
   return slug || 'memory';
+}
+
+function providerPathSegment(value: string): string {
+  return slugify(value).slice(0, 40) || 'default';
+}
+
+function providerRelevanceScore(title: string, content: string, normalizedQuery: string): number {
+  const queryTokens = normalizedQuery.split(/[^a-z0-9]+/).filter(token => token.length >= 4);
+  if (queryTokens.length === 0) return 0;
+  const haystack = new Set(`${title} ${content}`.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  return queryTokens.filter(token => haystack.has(token)).length;
+}
+
+function evictOldest<T extends { createdAt: number }>(entries: Map<string, T>, maxEntries: number): void {
+  if (maxEntries < 1) {
+    entries.clear();
+    return;
+  }
+  while (entries.size > maxEntries) {
+    const oldest = [...entries.entries()].sort((left, right) => left[1].createdAt - right[1].createdAt)[0];
+    if (!oldest) return;
+    entries.delete(oldest[0]);
+  }
+}
+
+function safeProviderErrorReason(provider: MemoryProvider, operation: 'write' | 'search', error: unknown): string {
+  const errorName = error instanceof Error ? error.name : 'UnknownError';
+  return `${provider.name} provider ${operation} failed (${errorName}); raw provider error text omitted`;
 }
 
 function firstLine(value: string): string {
@@ -747,9 +810,15 @@ export class LocalMemoryStore {
           reason: `Replicated to ${provider.name} provider`,
           actor: request.author,
         });
-      } catch {
-        // Provider write failures are non-fatal; local write already succeeded.
-        // We intentionally do not log content or provider errors containing content.
+      } catch (error) {
+        await this.audit({
+          action: 'provider-error',
+          class: classification.class,
+          title,
+          reason: safeProviderErrorReason(provider, 'write', error),
+          actor: request.author,
+          provider: provider.id,
+        });
       }
     }
 
@@ -835,16 +904,22 @@ export class LocalMemoryStore {
           seenIds.add(result.id);
           results.push({
             id: result.id,
-            class: 'LOCAL',
-            loadGuidance: 'ON-DEMAND',
+            class: result.class,
+            loadGuidance: result.loadGuidance,
             title: result.title,
             path: result.path ?? `${provider.id}:${result.id}`,
             snippet: result.snippet.slice(0, 240),
-            provider: 'local',
+            provider: provider.id,
+            score: result.score,
           });
         }
-      } catch {
-        // Provider search failures are non-fatal; partial results returned.
+      } catch (error) {
+        await this.audit({
+          action: 'provider-error',
+          title: 'Registered provider search failed',
+          reason: safeProviderErrorReason(provider, 'search', error),
+          provider: provider.id,
+        });
       }
     }
 
@@ -877,7 +952,11 @@ export class LocalMemoryStore {
       const now = new Date().toISOString();
       const nextIndex = await this.readIndex();
       const prior = nextIndex.find(item => item.id === id);
-      const successor = nextIndex.find(item => item.id === result.id);
+      const successorId = result.id;
+      if (!successorId) {
+        throw new Error(`Promoted memory '${id}' did not return a successor id`);
+      }
+      const successor = nextIndex.find(item => item.id === successorId);
       if (successor) {
         successor.supersedes = id;
         successor.updatedAt = now;
@@ -885,7 +964,7 @@ export class LocalMemoryStore {
       if (prior) {
         prior.status = 'superseded';
         prior.loadGuidance = 'ARCHIVE';
-        prior.supersededBy = result.id;
+        prior.supersededBy = successorId;
         prior.updatedAt = now;
       }
       await this.writeIndex(nextIndex);
@@ -893,7 +972,7 @@ export class LocalMemoryStore {
         await this.updateMemoryFileMetadata(prior.path, {
           status: 'superseded',
           loadGuidance: '[ARCHIVE]',
-          supersededBy: result.id,
+          supersededBy: successorId,
         });
       }
       await this.audit({
@@ -1119,11 +1198,38 @@ export class LocalMemoryStore {
   }
 
   private async audit(record: Omit<MemoryAuditRecord, 'timestamp'>): Promise<void> {
+    await this.rotateAuditIfNeeded();
     const auditRecord: MemoryAuditRecord = {
       timestamp: new Date().toISOString(),
       ...record,
     };
     await this.storage.append(path.join(this.squadDir, 'memory', 'audit.jsonl'), JSON.stringify(auditRecord) + '\n');
+  }
+
+  private async rotateAuditIfNeeded(): Promise<void> {
+    const config = await this.readConfig();
+    const maxBytes = config.policy.auditMaxBytes;
+    if (maxBytes <= 0) return;
+    const auditPath = path.join(this.squadDir, 'memory', 'audit.jsonl');
+    const stats = await this.storage.stat(auditPath);
+    if (!stats || stats.size < maxBytes) return;
+    const maxArchives = Math.max(0, config.policy.auditMaxArchives);
+    for (let index = maxArchives; index >= 1; index--) {
+      const current = path.join(this.squadDir, 'memory', `audit.${index}.jsonl`);
+      const next = path.join(this.squadDir, 'memory', `audit.${index + 1}.jsonl`);
+      if (!await this.storage.exists(current)) continue;
+      if (index === maxArchives) {
+        await this.storage.delete(current);
+      } else {
+        await this.storage.rename(current, next);
+      }
+    }
+    if (maxArchives > 0) {
+      await this.storage.rename(auditPath, path.join(this.squadDir, 'memory', 'audit.1.jsonl'));
+    } else {
+      await this.storage.delete(auditPath);
+    }
+    await this.storage.write(auditPath, '');
   }
 
   private destinationPath(memoryClass: MemoryClass, id: string, title: string, author?: string): string {
@@ -1162,10 +1268,18 @@ export class LocalMemoryStore {
   }
 
   private absoluteFromEntryPath(entryPath: string): string {
-    const relative = entryPath.startsWith('.squad')
-      ? entryPath.slice('.squad'.length + 1)
-      : entryPath;
-    return path.join(this.squadDir, relative);
+    if (/^[a-z][a-z0-9+.-]*:/i.test(entryPath)) {
+      throw new Error(`External memory path cannot be resolved locally: ${entryPath}`);
+    }
+    const normalizedInput = entryPath.replace(/\\/g, path.sep);
+    const relative = normalizedInput.startsWith('.squad')
+      ? normalizedInput.slice('.squad'.length + 1)
+      : normalizedInput;
+    const normalized = path.normalize(relative);
+    if (path.isAbsolute(normalized) || normalized === '..' || normalized.startsWith(`..${path.sep}`)) {
+      throw new Error(`Unsafe memory path blocked: ${entryPath}`);
+    }
+    return path.join(this.squadDir, normalized);
   }
 
   private async updateMemoryFileMetadata(entryPath: string, updates: Record<string, string>): Promise<void> {

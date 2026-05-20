@@ -39,4 +39,13 @@ describe('memory value benchmark', () => {
     expect(output).toContain('Decision consistency:');
     expect(output).toContain('Stale/unsafe facts avoided:');
   });
+
+  it('keeps benchmark output free of raw secret-shaped fixture values', () => {
+    const fixture = createDefaultMemoryValueFixture();
+    const report = runMemoryValueBenchmark(fixture);
+    const serialized = JSON.stringify({ fixture, report });
+
+    expect(serialized).not.toMatch(/\b(password|passwd|token|api[_-]?key)\s*[:=]\s*\S+/i);
+    expect(serialized).not.toContain('do-not-load-this-secret');
+  });
 });

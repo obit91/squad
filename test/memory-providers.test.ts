@@ -20,6 +20,9 @@ import {
   MemPalaceMemoryProvider,
   IndexServerMemoryProvider,
   type CopilotMemoryProviderWriteRequest,
+  type MemoryProvider,
+  type MemoryProviderSearchResult,
+  type MemoryProviderStatus,
 } from '../packages/squad-sdk/src/memory/index.js';
 
 const roots: string[] = [];
@@ -67,6 +70,7 @@ describe('MemPalaceMemoryProvider', () => {
     expect(hits).toHaveLength(1);
     expect(hits[0]?.id).toBe(result.id);
     expect(hits[0]?.title).toBe('Vitest SDK rule');
+    expect(hits[0]).toMatchObject({ class: 'LOCAL', loadGuidance: 'ON-DEMAND' });
   });
 
   it('stores a DECISION memory at a named locus', async () => {
@@ -120,6 +124,24 @@ describe('MemPalaceMemoryProvider', () => {
     const hits = await provider.search('nonexistent-query-xyz');
     expect(hits).toHaveLength(0);
   });
+
+  it('bounds long-lived in-memory provider entries', async () => {
+    const provider = new MemPalaceMemoryProvider(1);
+    const classification = {
+      class: 'LOCAL' as const,
+      allowed: true,
+      reason: 'Content is allowed for governed local memory',
+      destination: 'local' as const,
+      loadGuidance: 'ON-DEMAND' as const,
+    };
+
+    await provider.write({ content: 'First memory', title: 'First', classification });
+    await provider.write({ content: 'Second memory', title: 'Second', classification });
+
+    expect(provider.size).toBe(1);
+    expect(await provider.search('First')).toHaveLength(0);
+    expect(await provider.search('Second')).toHaveLength(1);
+  });
 });
 
 // ── IndexServerMemoryProvider ──────────────────────────────────────────────
@@ -152,6 +174,7 @@ describe('IndexServerMemoryProvider', () => {
     expect(hits).toHaveLength(1);
     expect(hits[0]?.id).toBe(result.id);
     expect(hits[0]?.title).toBe('Test-before-merge policy');
+    expect(hits[0]).toMatchObject({ class: 'POLICY', loadGuidance: 'ALWAYS' });
   });
 
   it('stores a DECISION memory under its topic', async () => {
@@ -269,10 +292,10 @@ describe('LocalMemoryStore with registered providers', () => {
       requestedClass: 'LOCAL',
     });
 
-    // Local search returns the local result
-    const localResults = await store.search('pull request templates');
-    expect(localResults.length).toBeGreaterThanOrEqual(1);
-    expect(localResults[0]?.provider).toBe('local');
+    const results = await store.search('pull request templates');
+    expect(results.some(result => result.provider === 'local')).toBe(true);
+    expect(results.some(result => result.provider === 'mempalace')).toBe(true);
+    expect(results.some(result => result.provider === 'indexserver')).toBe(true);
   });
 
   it('rejects FORBIDDEN content BEFORE any provider receives the write', async () => {
@@ -408,5 +431,85 @@ describe('LocalMemoryStore with registered providers', () => {
     // Actions are recorded
     expect(audit.map(r => r.action)).toContain('write');
     expect(audit.map(r => r.action)).toContain('search');
+  });
+
+  it('records safe provider failures without raw provider error text', async () => {
+    const root = testRoot('mp-is-provider-error');
+    const provider: MemoryProvider = {
+      id: 'failing-provider',
+      name: 'FailingProvider',
+      supportedClasses: ['LOCAL'],
+      async status(): Promise<MemoryProviderStatus> {
+        return { id: 'failing-provider', name: 'FailingProvider', available: true };
+      },
+      async write(): Promise<{ id: string }> {
+        throw new Error('raw failure includes context pressure and secret-like text');
+      },
+      async search(): Promise<MemoryProviderSearchResult[]> {
+        throw new Error('raw search query context pressure leaked');
+      },
+      async delete(): Promise<boolean> {
+        return false;
+      },
+    };
+    const store = new LocalMemoryStore(new FSStorageProvider(), root, {
+      registeredProviders: [provider],
+    });
+
+    await store.write({
+      content: 'Use governed memory to reduce context pressure.',
+      title: 'Provider failure note',
+      author: 'data',
+      requestedClass: 'LOCAL',
+    });
+    await store.search('context pressure');
+
+    const auditJson = JSON.stringify(await store.auditLog());
+    expect(auditJson).toContain('provider-error');
+    expect(auditJson).toContain('FailingProvider provider write failed (Error); raw provider error text omitted');
+    expect(auditJson).toContain('FailingProvider provider search failed (Error); raw provider error text omitted');
+    expect(auditJson).not.toContain('raw failure includes');
+    expect(auditJson).not.toContain('raw search query');
+  });
+
+  it('rotates audit logs when configured size is exceeded', async () => {
+    const root = testRoot('mp-is-audit-rotate');
+    const store = new LocalMemoryStore(new FSStorageProvider(), root);
+    await store.configureHostInjectedCopilotAdapter({
+      enabled: false,
+      actor: 'test',
+    });
+    const configPath = path.join(root, '.squad', 'memory', 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      policy: { auditMaxBytes: number; auditMaxArchives: number };
+    };
+    config.policy.auditMaxBytes = 1;
+    config.policy.auditMaxArchives = 1;
+    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+    await store.write({
+      content: 'Use bounded audit logs for long-running projects.',
+      title: 'Audit rotation note',
+      requestedClass: 'LOCAL',
+    });
+
+    expect(fs.existsSync(path.join(root, '.squad', 'memory', 'audit.1.jsonl'))).toBe(true);
+    expect(fs.existsSync(path.join(root, '.squad', 'memory', 'audit.jsonl'))).toBe(true);
+  });
+
+  it('blocks unsafe indexed paths during local search', async () => {
+    const root = testRoot('mp-is-path-safety');
+    const store = new LocalMemoryStore(new FSStorageProvider(), root);
+    await store.write({
+      content: 'Safe memory entry.',
+      title: 'Safe memory',
+      requestedClass: 'LOCAL',
+    });
+    const indexPath = path.join(root, '.squad', 'memory', 'index.json');
+    const index = JSON.parse(fs.readFileSync(indexPath, 'utf8')) as Array<Record<string, string>>;
+    index[0]!.path = '../outside.md';
+    fs.writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}\n`);
+
+    await expect(store.search('Safe')).rejects.toThrow('Unsafe memory path blocked');
   });
 });
