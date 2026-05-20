@@ -4,6 +4,8 @@ import {
   type MemoryClass,
   type MemoryLoadGuidance,
 } from '@bradygaster/squad-sdk';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const REAL_COPILOT_UNAVAILABLE_REASON =
   'Real Copilot Memory API unavailable: no concrete callable API was found in installed @github/copilot SDK/tooling. Squad will not fake provider=copilot; use hostInjectedCopilotAdapter only when a host supplies a client.';
@@ -24,6 +26,12 @@ type MemoryProviderStatus = {
   defaultProvider: 'local' | 'hostInjectedCopilotAdapter' | 'copilot';
   realCopilotMemory: { available: false; configured: boolean; reason: string };
   hostInjectedCopilotAdapter: { enabled: boolean; requireApproval: boolean; clientAvailable: boolean; configured: boolean };
+};
+
+type SquadConfig = {
+  memory?: {
+    logLevel?: unknown;
+  };
 };
 
 const MEMORY_DIAGNOSTIC_LEVELS: Record<MemoryDiagnosticLevel, number> = {
@@ -82,7 +90,22 @@ function parseLogLevel(value: string | undefined): MemoryDiagnosticLevel {
   throw new Error(`Unknown memory log level: ${value}. Expected none|error|info|debug.`);
 }
 
-function parseDiagnostics(args: string[]): { args: string[]; logLevel: MemoryDiagnosticLevel } {
+function readConfiguredLogLevel(projectRoot: string): MemoryDiagnosticLevel | undefined {
+  const configPath = path.join(projectRoot, '.squad', 'config.json');
+  if (!fs.existsSync(configPath)) return undefined;
+
+  let parsed: SquadConfig;
+  try {
+    parsed = JSON.parse(fs.readFileSync(configPath, 'utf8')) as SquadConfig;
+  } catch {
+    return undefined;
+  }
+
+  const logLevel = parsed.memory?.logLevel;
+  return typeof logLevel === 'string' ? parseLogLevel(logLevel) : undefined;
+}
+
+function parseDiagnostics(projectRoot: string, args: string[]): { args: string[]; logLevel: MemoryDiagnosticLevel } {
   const filtered: string[] = [];
   let logLevel: MemoryDiagnosticLevel | undefined;
 
@@ -104,7 +127,14 @@ function parseDiagnostics(args: string[]): { args: string[]; logLevel: MemoryDia
     filtered.push(arg);
   }
 
-  return { args: filtered, logLevel: logLevel ?? parseLogLevel(process.env['SQUAD_MEMORY_LOG_LEVEL']) };
+  return {
+    args: filtered,
+    logLevel: logLevel ?? (
+      process.env['SQUAD_MEMORY_LOG_LEVEL'] !== undefined
+        ? parseLogLevel(process.env['SQUAD_MEMORY_LOG_LEVEL'])
+        : readConfiguredLogLevel(projectRoot) ?? 'none'
+    ),
+  };
 }
 
 function createMemoryDiagnostics(logLevel: MemoryDiagnosticLevel) {
@@ -125,7 +155,7 @@ function createMemoryDiagnostics(logLevel: MemoryDiagnosticLevel) {
 }
 
 export async function runMemoryCommand(projectRoot: string, args: string[]): Promise<void> {
-  const diagnosticsConfig = parseDiagnostics(args);
+  const diagnosticsConfig = parseDiagnostics(projectRoot, args);
   const commandArgs = diagnosticsConfig.args;
   const diagnostics = createMemoryDiagnostics(diagnosticsConfig.logLevel);
   const operation = commandArgs[0] ?? 'help';
@@ -308,7 +338,7 @@ export async function runMemoryCommand(projectRoot: string, args: string[]): Pro
       '  search --query "testing strategy"',
       '  provider [--enable-host-injected-copilot-adapter|--disable-host-injected-copilot-adapter] [--require-approval true|false]',
       '  provider --provider copilot fails unless a real Copilot Memory API module is present.',
-      '  diagnostics: --log-level none|error|info|debug or --verbose (stderr; never logs raw memory content or search text).',
+      '  diagnostics: --log-level none|error|info|debug, --verbose, SQUAD_MEMORY_LOG_LEVEL, or .squad/config.json memory.logLevel (stderr; never logs raw memory content or search text).',
       'hostInjectedCopilotAdapter is not real provider=copilot persistence; enabling config alone never fakes remote memory.',
     ].join('\n'));
   } catch (error) {

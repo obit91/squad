@@ -25,6 +25,10 @@ function readMemoryIndex(root: string): Array<Record<string, unknown>> {
   return JSON.parse(fs.readFileSync(path.join(root, '.squad', 'memory', 'index.json'), 'utf8')) as Array<Record<string, unknown>>;
 }
 
+function writeSquadConfig(root: string, config: Record<string, unknown>): void {
+  fs.writeFileSync(path.join(root, '.squad', 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -491,6 +495,114 @@ describe('LocalMemoryStore', () => {
     expect(diagnostics.join('\n')).toContain('[memory:debug] write.request');
     expect(diagnostics.join('\n')).toContain('contentLength=');
     expect(diagnostics.join('\n')).not.toContain('never-log-this-value');
+  });
+
+  it('CLI reads memory diagnostics log level from .squad/config.json without leaking content', async () => {
+    const root = testRoot('memory-cli-config-diagnostics');
+    writeSquadConfig(root, { memory: { logLevel: 'debug' } });
+
+    const output: string[] = [];
+    const diagnostics: string[] = [];
+    const originalLog = console.log;
+    const originalError = console.error;
+    console.log = (value?: unknown) => {
+      output.push(String(value));
+    };
+    console.error = (value?: unknown) => {
+      diagnostics.push(String(value));
+    };
+    try {
+      await runMemoryCommand(root, [
+        'write',
+        '--content',
+        'password=config-must-not-log-this-value',
+        '--title',
+        'Config diagnostic write',
+        '--class',
+        'LOCAL',
+      ]);
+    } finally {
+      console.log = originalLog;
+      console.error = originalError;
+    }
+
+    expect(JSON.parse(output[0] ?? '{}')).toMatchObject({
+      stored: false,
+      classification: { class: 'FORBIDDEN' },
+    });
+    expect(diagnostics.join('\n')).toContain('[memory:info] command.start command=write');
+    expect(diagnostics.join('\n')).toContain('[memory:debug] write.request');
+    expect(diagnostics.join('\n')).toContain('contentLength=');
+    expect(diagnostics.join('\n')).not.toContain('config-must-not-log-this-value');
+  });
+
+  it('CLI environment log level overrides .squad/config.json memory diagnostics', async () => {
+    const root = testRoot('memory-cli-env-over-config-diagnostics');
+    writeSquadConfig(root, { memory: { logLevel: 'debug' } });
+
+    const output: string[] = [];
+    const diagnostics: string[] = [];
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalEnv = process.env['SQUAD_MEMORY_LOG_LEVEL'];
+    console.log = (value?: unknown) => {
+      output.push(String(value));
+    };
+    console.error = (value?: unknown) => {
+      diagnostics.push(String(value));
+    };
+    process.env['SQUAD_MEMORY_LOG_LEVEL'] = 'info';
+    try {
+      await runMemoryCommand(root, ['search', '--query', 'env-over-config-secret-query']);
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env['SQUAD_MEMORY_LOG_LEVEL'];
+      } else {
+        process.env['SQUAD_MEMORY_LOG_LEVEL'] = originalEnv;
+      }
+      console.log = originalLog;
+      console.error = originalError;
+    }
+
+    expect(JSON.parse(output[0] ?? '[]')).toEqual([]);
+    expect(diagnostics.join('\n')).toContain('[memory:info] search.complete count=0 providers=none');
+    expect(diagnostics.join('\n')).not.toContain('[memory:debug] search.request');
+    expect(diagnostics.join('\n')).not.toContain('env-over-config-secret-query');
+  });
+
+  it('CLI log-level switch overrides environment and .squad/config.json memory diagnostics', async () => {
+    const root = testRoot('memory-cli-switch-overrides-diagnostics');
+    writeSquadConfig(root, { memory: { logLevel: 'debug' } });
+
+    const output: string[] = [];
+    const diagnostics: string[] = [];
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalEnv = process.env['SQUAD_MEMORY_LOG_LEVEL'];
+    console.log = (value?: unknown) => {
+      output.push(String(value));
+    };
+    console.error = (value?: unknown) => {
+      diagnostics.push(String(value));
+    };
+    process.env['SQUAD_MEMORY_LOG_LEVEL'] = 'error';
+    try {
+      await runMemoryCommand(root, ['provider', '--log-level', 'info']);
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env['SQUAD_MEMORY_LOG_LEVEL'];
+      } else {
+        process.env['SQUAD_MEMORY_LOG_LEVEL'] = originalEnv;
+      }
+      console.log = originalLog;
+      console.error = originalError;
+    }
+
+    expect(JSON.parse(output[0] ?? '{}')).toMatchObject({
+      defaultProvider: 'local',
+    });
+    expect(diagnostics.join('\n')).toContain('[memory:info] provider.status.complete');
+    expect(diagnostics.join('\n')).not.toContain('[memory:debug]');
   });
 
   it('CLI memory diagnostics report safe counts and providers without breaking JSON stdout', async () => {
