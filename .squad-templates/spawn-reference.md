@@ -5,7 +5,7 @@
 **You MUST dispatch every agent spawn** via the platform's tool (`task` on CLI, `runSubagent` on VS Code):
 
 - **`agent_type`**: `"general-purpose"` (always — this gives agents full tool access)
-- **`mode`**: `"background"` (default) or omit for sync — see Mode Selection table above
+- **`mode`**: `"background"` (default) or `"sync"` — use `"background"` for all parallelizable work; use `"sync"` only when the result is needed before the next step can proceed
 - **`description`**: `"{Name}: {brief task summary}"` (e.g., `"Ripley: Design REST API endpoints"`, `"Dallas: Build login form"`) — this is what appears in the UI, so it MUST carry the agent's name and what they're doing
 - **`prompt`**: The full agent prompt (see below)
 
