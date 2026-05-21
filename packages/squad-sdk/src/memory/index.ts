@@ -543,6 +543,12 @@ export class LocalMemoryStore {
   private readonly squadDir: string;
   private readonly copilotProvider: HostInjectedCopilotMemoryAdapter;
   private readonly registeredProviders: MemoryProvider[];
+  /**
+   * Async mutex tail for index read-modify-write operations.
+   * Each caller enqueues behind the current tail so concurrent writes
+   * are serialized without OS-level file locking.
+   */
+  private indexLockTail: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly storage: StorageProvider,
@@ -554,6 +560,29 @@ export class LocalMemoryStore {
       options.hostInjectedCopilotAdapterClient ?? options.copilotMemoryClient,
     );
     this.registeredProviders = options.registeredProviders ?? [];
+  }
+
+  /**
+   * Serialize all index read-modify-write operations.
+   *
+   * All callers that do readIndex() → mutate → writeIndex() must go through
+   * this method so concurrent writes within the same store instance cannot
+   * interleave and lose entries. The critical section is purely async
+   * (no thread blocking), so this is safe in Node.js single-thread land.
+   */
+  private async withIndexLock<T>(fn: () => Promise<T>): Promise<T> {
+    let unlock!: () => void;
+    // Append a new "release" promise to the tail of the lock chain.
+    // The next caller will wait for this release before proceeding.
+    const release = new Promise<void>(resolve => { unlock = resolve; });
+    const prev = this.indexLockTail;
+    this.indexLockTail = release;
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      unlock();
+    }
   }
 
   async classify(
@@ -734,9 +763,11 @@ export class LocalMemoryStore {
         createdAt: now,
         updatedAt: now,
       };
-      const index = await this.readIndex();
-      index.push(entry);
-      await this.writeIndex(index);
+      await this.withIndexLock(async () => {
+        const index = await this.readIndex();
+        index.push(entry);
+        await this.writeIndex(index);
+      });
       await this.audit({
         action: 'write',
         id: providerResult.id,
@@ -773,9 +804,13 @@ export class LocalMemoryStore {
       createdAt: now,
       updatedAt: now,
     };
-    const index = await this.readIndex();
-    index.push(entry);
-    await this.writeIndex(index);
+    // Serialize the read-modify-write under the index lock so concurrent
+    // calls within the same store instance cannot overwrite each other's entry.
+    await this.withIndexLock(async () => {
+      const index = await this.readIndex();
+      index.push(entry);
+      await this.writeIndex(index);
+    });
     await this.audit({
       action: 'write',
       id,
@@ -950,26 +985,32 @@ export class LocalMemoryStore {
     });
     if (result.stored && result.id) {
       const now = new Date().toISOString();
-      const nextIndex = await this.readIndex();
-      const prior = nextIndex.find(item => item.id === id);
       const successorId = result.id;
       if (!successorId) {
         throw new Error(`Promoted memory '${id}' did not return a successor id`);
       }
-      const successor = nextIndex.find(item => item.id === successorId);
-      if (successor) {
-        successor.supersedes = id;
-        successor.updatedAt = now;
-      }
-      if (prior) {
-        prior.status = 'superseded';
-        prior.loadGuidance = 'ARCHIVE';
-        prior.supersededBy = successorId;
-        prior.updatedAt = now;
-      }
-      await this.writeIndex(nextIndex);
-      if (prior && !prior.path.startsWith('host-injected-copilot-adapter:') && !prior.path.startsWith('copilot-memory:')) {
-        await this.updateMemoryFileMetadata(prior.path, {
+      // Serialize the supersedes/supersededBy mutation under the lock.
+      // write() above already released its lock before we reach here.
+      let priorEntryPath: string | undefined;
+      await this.withIndexLock(async () => {
+        const nextIndex = await this.readIndex();
+        const prior = nextIndex.find(item => item.id === id);
+        const successor = nextIndex.find(item => item.id === successorId);
+        if (successor) {
+          successor.supersedes = id;
+          successor.updatedAt = now;
+        }
+        if (prior) {
+          prior.status = 'superseded';
+          prior.loadGuidance = 'ARCHIVE';
+          prior.supersededBy = successorId;
+          prior.updatedAt = now;
+          priorEntryPath = prior.path;
+        }
+        await this.writeIndex(nextIndex);
+      });
+      if (priorEntryPath && !priorEntryPath.startsWith('host-injected-copilot-adapter:') && !priorEntryPath.startsWith('copilot-memory:')) {
+        await this.updateMemoryFileMetadata(priorEntryPath, {
           status: 'superseded',
           loadGuidance: '[ARCHIVE]',
           supersededBy: successorId,
@@ -989,55 +1030,75 @@ export class LocalMemoryStore {
 
   async delete(id: string, actor?: string): Promise<boolean> {
     await this.ensureInitialized();
-    const index = await this.readIndex();
-    const entry = index.find(item => item.id === id && item.status !== 'deleted');
-    if (!entry) return false;
-    const previousStatus = entry.status;
-    if (
-      entry.class === 'COPILOT_MEMORY'
-      || entry.path.startsWith('copilot-memory:')
-      || entry.path.startsWith('host-injected-copilot-adapter:')
-    ) {
-      const config = await this.readConfig();
-      if (isRealCopilotProviderSelected(config)) {
-        throw new Error(REAL_COPILOT_UNAVAILABLE_REASON);
+    return this.withIndexLock(async () => {
+      const index = await this.readIndex();
+      const entry = index.find(item => item.id === id && item.status !== 'deleted');
+      if (!entry) return false;
+      const previousStatus = entry.status;
+      const deletedAt = new Date().toISOString();
+      const tombstonePath = path.join(this.squadDir, 'memory', 'tombstones', `${id}.json`);
+      const tombstoneData =
+        JSON.stringify({
+          id,
+          deletedAt,
+          path: entry.path,
+          previousStatus,
+          supersedes: entry.supersedes,
+          supersededBy: entry.supersededBy,
+          loadGuidance: '[ARCHIVE]',
+        }, null, 2) + '\n';
+
+      if (
+        entry.class === 'COPILOT_MEMORY'
+        || entry.path.startsWith('copilot-memory:')
+        || entry.path.startsWith('host-injected-copilot-adapter:')
+      ) {
+        const config = await this.readConfig();
+        if (isRealCopilotProviderSelected(config)) {
+          throw new Error(REAL_COPILOT_UNAVAILABLE_REASON);
+        }
+        if (!isHostInjectedCopilotAdapterConfigured(config)) {
+          throw new Error('COPILOT_MEMORY delete requires hostInjectedCopilotAdapter to be enabled; real provider=copilot is unavailable locally.');
+        }
+        // For COPILOT_MEMORY: gate on external delete success before local mutations.
+        const deleted = await this.copilotProvider.delete(id);
+        if (!deleted) return false;
+        // Write tombstone first (local intent record), then update index.
+        await this.storage.write(tombstonePath, tombstoneData);
+        entry.status = 'deleted';
+        entry.loadGuidance = 'ARCHIVE';
+        entry.deletedAt = deletedAt;
+        entry.updatedAt = deletedAt;
+        await this.writeIndex(index);
+      } else {
+        // For local entries: tombstone FIRST (before any destructive action),
+        // then update index, then delete source file last.
+        // If tombstone write fails, source and index are untouched.
+        // If writeIndex fails after tombstone, source still exists and tombstone
+        // signals the delete intent for recovery.
+        await this.storage.write(tombstonePath, tombstoneData);
+        entry.status = 'deleted';
+        entry.loadGuidance = 'ARCHIVE';
+        entry.deletedAt = deletedAt;
+        entry.updatedAt = deletedAt;
+        await this.writeIndex(index);
+        // Source deletion is last: if it fails, the entry is already marked
+        // deleted in the index and a tombstone exists — recoverable.
+        await this.storage.delete(this.absoluteFromEntryPath(entry.path));
       }
-      if (!isHostInjectedCopilotAdapterConfigured(config)) {
-        throw new Error('COPILOT_MEMORY delete requires hostInjectedCopilotAdapter to be enabled; real provider=copilot is unavailable locally.');
-      }
-      const deleted = await this.copilotProvider.delete(id);
-      if (!deleted) return false;
-    } else {
-      await this.storage.delete(this.absoluteFromEntryPath(entry.path));
-    }
-    entry.status = 'deleted';
-    entry.loadGuidance = 'ARCHIVE';
-    entry.deletedAt = new Date().toISOString();
-    entry.updatedAt = entry.deletedAt;
-    await this.writeIndex(index);
-    await this.storage.write(
-      path.join(this.squadDir, 'memory', 'tombstones', `${id}.json`),
-      JSON.stringify({
+
+      await this.audit({
+        action: 'delete',
         id,
-        deletedAt: entry.deletedAt,
+        class: entry.class,
+        title: entry.title,
         path: entry.path,
-        previousStatus,
-        supersedes: entry.supersedes,
-        supersededBy: entry.supersededBy,
-        loadGuidance: '[ARCHIVE]',
-      }, null, 2) + '\n',
-    );
-    await this.audit({
-      action: 'delete',
-      id,
-      class: entry.class,
-      title: entry.title,
-      path: entry.path,
-      reason: 'Deleted governed memory and wrote tombstone',
-      actor,
-      provider: entry.class === 'COPILOT_MEMORY' ? 'hostInjectedCopilotAdapter' : 'local',
+        reason: 'Deleted governed memory and wrote tombstone',
+        actor,
+        provider: entry.class === 'COPILOT_MEMORY' ? 'hostInjectedCopilotAdapter' : 'local',
+      });
+      return true;
     });
-    return true;
   }
 
   async providerStatus(): Promise<{
@@ -1183,18 +1244,50 @@ export class LocalMemoryStore {
   }
 
   private async readIndex(): Promise<MemoryIndexEntry[]> {
-    const content = await this.storage.read(path.join(this.squadDir, 'memory', 'index.json'));
+    const indexPath = path.join(this.squadDir, 'memory', 'index.json');
+    const content = await this.storage.read(indexPath);
     if (!content) return [];
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(content) as MemoryIndexEntry[];
-      return Array.isArray(parsed) ? parsed : [];
+      parsed = JSON.parse(content);
+    } catch (err) {
+      // Do NOT silently reset to []. Backup the corrupt file and surface the error.
+      await this.backupCorruptIndex(indexPath, content);
+      throw new Error(
+        `Memory index is corrupt (JSON parse failed: ${err instanceof Error ? err.message : String(err)}). ` +
+        `A backup was written to ${indexPath}.corrupt. Manual recovery is required.`,
+      );
+    }
+    if (!Array.isArray(parsed)) {
+      await this.backupCorruptIndex(indexPath, content);
+      throw new Error(
+        `Memory index is corrupt (root is not an array). ` +
+        `A backup was written to ${indexPath}.corrupt. Manual recovery is required.`,
+      );
+    }
+    return parsed as MemoryIndexEntry[];
+  }
+
+  /**
+   * Best-effort backup of a corrupt index file.
+   * Writes the raw content to a `.corrupt` path alongside the index.
+   * Failure to write the backup is suppressed so callers see the original error.
+   */
+  private async backupCorruptIndex(indexPath: string, content: string): Promise<void> {
+    try {
+      await this.storage.write(`${indexPath}.corrupt`, content);
     } catch {
-      return [];
+      // Suppress backup write failure; caller will still throw the original error.
     }
   }
 
   private async writeIndex(index: MemoryIndexEntry[]): Promise<void> {
-    await this.storage.write(path.join(this.squadDir, 'memory', 'index.json'), JSON.stringify(index, null, 2) + '\n');
+    const indexPath = path.join(this.squadDir, 'memory', 'index.json');
+    const tmpPath = `${indexPath}.tmp`;
+    // Write to a temp file first, then atomically rename into place.
+    // This prevents a crash mid-write from leaving a partial/corrupt index.
+    await this.storage.write(tmpPath, JSON.stringify(index, null, 2) + '\n');
+    await this.storage.rename(tmpPath, indexPath);
   }
 
   private async audit(record: Omit<MemoryAuditRecord, 'timestamp'>): Promise<void> {

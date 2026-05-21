@@ -513,3 +513,174 @@ describe('LocalMemoryStore with registered providers', () => {
     await expect(store.search('Safe')).rejects.toThrow('Unsafe memory path blocked');
   });
 });
+
+// ── Regression tests for critical/medium PR comment fixes ─────────────────
+
+describe('LocalMemoryStore — concurrent writes and index integrity', () => {
+  it('two concurrent writes produce two index entries (no lost update)', async () => {
+    const root = testRoot('concurrent-writes');
+    const store = new LocalMemoryStore(new FSStorageProvider(), root);
+
+    // Fire both writes simultaneously and await together.
+    const [r1, r2] = await Promise.all([
+      store.write({ content: 'First concurrent memory.', title: 'First', requestedClass: 'LOCAL' }),
+      store.write({ content: 'Second concurrent memory.', title: 'Second', requestedClass: 'LOCAL' }),
+    ]);
+
+    expect(r1.stored).toBe(true);
+    expect(r2.stored).toBe(true);
+    expect(r1.id).not.toBe(r2.id);
+
+    // Both entries must survive in the persisted index.
+    const indexPath = path.join(root, '.squad', 'memory', 'index.json');
+    const index = JSON.parse(fs.readFileSync(indexPath, 'utf8')) as Array<{ id: string; status: string }>;
+    const activeIds = index.filter(e => e.status === 'active').map(e => e.id);
+    expect(activeIds).toContain(r1.id!);
+    expect(activeIds).toContain(r2.id!);
+  });
+
+  it('many concurrent writes all survive in the index', async () => {
+    const root = testRoot('concurrent-writes-many');
+    const store = new LocalMemoryStore(new FSStorageProvider(), root);
+    const N = 10;
+    const results = await Promise.all(
+      Array.from({ length: N }, (_, i) =>
+        store.write({ content: `Memory number ${i}.`, title: `Entry ${i}`, requestedClass: 'LOCAL' }),
+      ),
+    );
+
+    expect(results.every(r => r.stored)).toBe(true);
+    const ids = new Set(results.map(r => r.id));
+    expect(ids.size).toBe(N);
+
+    const indexPath = path.join(root, '.squad', 'memory', 'index.json');
+    const index = JSON.parse(fs.readFileSync(indexPath, 'utf8')) as Array<{ id: string; status: string }>;
+    const activeIds = new Set(index.filter(e => e.status === 'active').map(e => e.id));
+    for (const id of ids) {
+      expect(activeIds.has(id!)).toBe(true);
+    }
+  });
+});
+
+describe('LocalMemoryStore — corrupted index.json handling', () => {
+  it('throws a descriptive error when index.json contains invalid JSON', async () => {
+    const root = testRoot('corrupt-index-json');
+    const store = new LocalMemoryStore(new FSStorageProvider(), root);
+    // Initialize by writing a valid memory first.
+    await store.write({ content: 'Baseline memory.', title: 'Baseline', requestedClass: 'LOCAL' });
+
+    // Corrupt the index.
+    const indexPath = path.join(root, '.squad', 'memory', 'index.json');
+    fs.writeFileSync(indexPath, '{ this is: not valid JSON }');
+
+    // A subsequent write must throw, not silently reset to empty.
+    await expect(
+      store.write({ content: 'After corruption.', title: 'After', requestedClass: 'LOCAL' }),
+    ).rejects.toThrow(/Memory index is corrupt/);
+  });
+
+  it('preserves a backup of the corrupt index file when it throws', async () => {
+    const root = testRoot('corrupt-index-backup');
+    const store = new LocalMemoryStore(new FSStorageProvider(), root);
+    await store.write({ content: 'Baseline memory.', title: 'Baseline', requestedClass: 'LOCAL' });
+
+    const indexPath = path.join(root, '.squad', 'memory', 'index.json');
+    const corruptContent = '{ this is: not valid JSON }';
+    fs.writeFileSync(indexPath, corruptContent);
+
+    await expect(store.write({ content: 'x', title: 'x', requestedClass: 'LOCAL' })).rejects.toThrow();
+
+    // Backup must exist alongside the index with the original corrupt content.
+    const backupPath = `${indexPath}.corrupt`;
+    expect(fs.existsSync(backupPath)).toBe(true);
+    expect(fs.readFileSync(backupPath, 'utf8')).toBe(corruptContent);
+  });
+
+  it('throws when index.json root is not an array', async () => {
+    const root = testRoot('corrupt-index-not-array');
+    const store = new LocalMemoryStore(new FSStorageProvider(), root);
+    await store.write({ content: 'Baseline memory.', title: 'Baseline', requestedClass: 'LOCAL' });
+
+    const indexPath = path.join(root, '.squad', 'memory', 'index.json');
+    fs.writeFileSync(indexPath, JSON.stringify({ entries: [] }));
+
+    await expect(
+      store.write({ content: 'After corruption.', title: 'After', requestedClass: 'LOCAL' }),
+    ).rejects.toThrow(/Memory index is corrupt/);
+  });
+});
+
+describe('LocalMemoryStore — delete tombstone ordering', () => {
+  it('tombstone is written before source file is deleted', async () => {
+    const root = testRoot('delete-tombstone-order');
+    const store = new LocalMemoryStore(new FSStorageProvider(), root);
+    const { id, path: entryPath } = await store.write({
+      content: 'Memory to be deleted.',
+      title: 'To delete',
+      requestedClass: 'LOCAL',
+    });
+
+    // Intercept: record which files exist the moment delete() is called
+    // (we cannot easily hook into the middle of delete, so instead we verify
+    // the tombstone exists AFTER a successful delete and that the audit records
+    // "Deleted governed memory and wrote tombstone").
+    const deleted = await store.delete(id!);
+    expect(deleted).toBe(true);
+
+    const tombstonePath = path.join(root, '.squad', 'memory', 'tombstones', `${id}.json`);
+    expect(fs.existsSync(tombstonePath)).toBe(true);
+
+    const tombstone = JSON.parse(fs.readFileSync(tombstonePath, 'utf8')) as {
+      id: string; previousStatus: string; path: string;
+    };
+    expect(tombstone.id).toBe(id);
+    expect(tombstone.previousStatus).toBe('active');
+    expect(tombstone.path).toBe(entryPath);
+
+    // Source file must no longer exist.
+    const sourcePath = path.join(root, entryPath!);
+    expect(fs.existsSync(sourcePath)).toBe(false);
+
+    // Audit must contain the delete record.
+    const audit = await store.auditLog();
+    expect(audit.some(r => r.action === 'delete' && r.id === id)).toBe(true);
+  });
+
+  it('tombstone survives when source deletion fails (source may be already gone)', async () => {
+    // Manually inject a storage provider that fails on delete() after tombstone
+    // to simulate a crash between index update and source deletion.
+    const root = testRoot('delete-tombstone-survives');
+    let deleteCallCount = 0;
+    const realProvider = new FSStorageProvider();
+
+    // Proxy that lets the tombstone write pass but throws on the source delete.
+    const faultingProvider = new Proxy(realProvider, {
+      get(target, prop) {
+        if (prop === 'delete') {
+          return async (filePath: string) => {
+            deleteCallCount++;
+            // Fail on the first real source delete call.
+            if (deleteCallCount === 1) throw new Error('Simulated source delete failure');
+            return (target.delete as (p: string) => Promise<void>)(filePath);
+          };
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (target as any)[prop];
+      },
+    }) as FSStorageProvider;
+
+    const store = new LocalMemoryStore(faultingProvider, root);
+    const { id } = await store.write({
+      content: 'Memory subject to delete fault.',
+      title: 'Delete fault test',
+      requestedClass: 'LOCAL',
+    });
+
+    // Delete should propagate the storage error.
+    await expect(store.delete(id!)).rejects.toThrow('Simulated source delete failure');
+
+    // Tombstone must exist (written before the source delete).
+    const tombstonePath = path.join(root, '.squad', 'memory', 'tombstones', `${id}.json`);
+    expect(fs.existsSync(tombstonePath)).toBe(true);
+  });
+});
