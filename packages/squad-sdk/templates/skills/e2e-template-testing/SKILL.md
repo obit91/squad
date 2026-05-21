@@ -80,20 +80,31 @@ cat .squad/config.json      # should reflect any CLI flags you passed
 
 ### Step 4 — Run a real session and capture output
 
-Use the Copilot CLI's `-p` flag for non-interactive single-turn sessions:
+Use the Copilot CLI's `-p` flag with `--allow-all-tools` for non-interactive sessions.
+`--allow-all-tools` is **required** for automated/non-interactive runs — without it,
+tool calls (including file writes) prompt for confirmation and block.
+
+```powershell
+# PowerShell (Windows)
+copilot --agent squad --allow-all-tools -p "Picard, decide what testing framework to use. Write your decision." `
+  2>&1 | Tee-Object evidence/session-task.log
+```
 
 ```bash
-copilot --agent squad -p "Picard, decide what testing framework to use. Write your decision." \
+# Bash (macOS/Linux)
+copilot --agent squad --allow-all-tools -p "Picard, decide what testing framework to use. Write your decision." \
   2>&1 | tee evidence/session-task.log
 ```
 
+Alternatively, set the `COPILOT_ALLOW_ALL=1` environment variable instead of the flag.
+
 For multi-turn workflows, run sequential sessions:
-```bash
+```powershell
 # Session A: give the team a task
-copilot --agent squad -p "prompt A" 2>&1 | tee evidence/session-A.log
+copilot --agent squad --allow-all-tools -p "prompt A" 2>&1 | Tee-Object evidence/session-A.log
 
 # Session B: verify state persisted
-copilot --agent squad -p "What decisions has the team made?" 2>&1 | tee evidence/session-B.log
+copilot --agent squad --allow-all-tools -p "What decisions has the team made?" 2>&1 | Tee-Object evidence/session-B.log
 ```
 
 ### Step 5 — Verify the outcome
@@ -363,7 +374,35 @@ This applies to all evidence tables, verdict files, and PR comments.
   agents can claim they wrote something without actually doing it.
 - **Reusing test repos.** Prior state bleeds into later tests. Start fresh.
 
+## Sandbox / Permission Notes
+
+### Always pass `--allow-all-tools` in non-interactive mode
+
+The Copilot CLI requires explicit permission to run tools automatically. In
+interactive mode the user approves each tool call; in non-interactive mode (`-p`)
+those prompts cannot be displayed and writes fail silently or with a "Permission
+denied and could not request permission from user" error.
+
+Fix: always include `--allow-all-tools` (or `--yolo` / `--allow-all`) in Step 4
+commands, or export `COPILOT_ALLOW_ALL=1` before running E2E sessions.
+
+This also applies when `copilot --agent squad` is launched as a subprocess from
+inside a Copilot CLI background agent (e.g. Sims running via the `task` tool) —
+the flag is still needed.
+
+### `--allow-all-paths` for repos outside the CWD
+
+By default the CLI restricts file access to the current directory tree. If the
+coordinator needs to read files from a parent repo while running in a disposable
+test repo, add `--allow-all-paths`:
+
+```powershell
+copilot --agent squad --allow-all-tools --allow-all-paths -p "..."
+```
+
+Or use the combined shorthand: `--allow-all` / `--yolo`.
+
 ## Confidence
 
 high — Validated through 12 real E2E test sessions during state-backend
-development (PR #1004).
+development (PR #1004). `--allow-all-tools` requirement confirmed in PR #1035.
