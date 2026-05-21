@@ -124,6 +124,7 @@ Create an `evidence/verdict.md` in each test repo:
 **Backend:** worktree | git-notes | orphan | two-layer
 **Branch:** [your feature branch]
 **Result:** PASS | PARTIAL | FAIL
+**Duration:** Xm Ys
 
 ### What was verified
 - [ ] Coordinator identified feature correctly (from session log)
@@ -140,6 +141,9 @@ Create an `evidence/verdict.md` in each test repo:
 [anything unusual or noteworthy]
 ```
 
+Record the wall-clock time from the start of Step 1 (fast-fail checks) to the end
+of Step 6 (verdict posted). This is the full E2E run duration for this scenario.
+
 ## Progress Reporting
 
 Use this section only when you are running E2E validation for an open PR. If
@@ -152,14 +156,14 @@ skip progress reporting silently.
 1. Post a PR comment before Step 1 begins:
 
 ```bash
-gh pr comment "$PR_NUMBER" --repo "$REPO" --body "## E2E Progress\n\n| Step | Status | Updated |
-|---|---|---|
-| 1. Fast-fail checks (build · link · \\`squad version\\`) | ⏳ Pending | --:-- |
-| 2. Create test repo(s) | ⏳ Pending | --:-- |
-| 3. \\`squad init\\` + file verification | ⏳ Pending | --:-- |
-| 4. Run sessions | ⏳ Pending | --:-- |
-| 5. Verify outcomes | ⏳ Pending | --:-- |
-| 6. Record verdicts + post final comment | ⏳ Pending | --:-- |
+gh pr comment "$PR_NUMBER" --repo "$REPO" --body "## E2E Progress\n\n| Step | Status | Started | Duration |
+|---|---|---|---|
+| 1. Fast-fail checks (build · link · \\`squad version\\`) | ⏳ Pending | --:-- | -- |
+| 2. Create test repo(s) | ⏳ Pending | --:-- | -- |
+| 3. \\`squad init\\` + file verification | ⏳ Pending | --:-- | -- |
+| 4. Run sessions | ⏳ Pending | --:-- | -- |
+| 5. Verify outcomes | ⏳ Pending | --:-- | -- |
+| 6. Record verdicts + post final comment | ⏳ Pending | --:-- | -- |
 \n| Symbol | Meaning |
 |---|---|
 | ⏳ | Not started |
@@ -180,21 +184,26 @@ COMMENT_ID=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --jq '.[-1].id')
 
 ### Update the tracking comment after every step boundary
 
-1. After each step completes, compute the current time in `HH:MM` format.
+1. When marking a step `🔄 Running`, record `$startTime = Get-Date` and store the
+   `HH:MM` start time in that row's **Started** column.
 2. Edit the existing comment in place; do not post a new progress comment:
 
 ```bash
 gh api --method PATCH "repos/$REPO/issues/comments/$COMMENT_ID" --field body="..."
 ```
 
-3. Update the completed step row to `✅`, `❌`, or `⚠️` and include the `HH:MM`
-   timestamp in that row.
-4. Keep all previously completed rows unchanged.
-5. Mark the next step as `🔄 Running`.
-6. Leave later steps as `⏳ Pending`.
-7. If a step fails and you stop early, still update the comment so the failed step
-   shows `❌` with its timestamp and Step 6 becomes `🔄 Running` while you prepare
-   the final verdict.
+3. When marking a step `✅`, `❌`, or `⚠️`, compute
+   `$duration = (Get-Date) - $startTime` and format it as
+   `"{0}m {1}s" -f [int]$duration.TotalMinutes, $duration.Seconds`.
+4. Update the completed step row to `✅`, `❌`, or `⚠️`, keep its original
+   `HH:MM` value in **Started**, and write the formatted duration in **Duration**.
+5. Keep all previously completed rows unchanged.
+6. Mark the next step as `🔄 Running` and set its **Started** value.
+7. Leave later steps as `⏳ Pending` with `--:--` for **Started** and `--` for
+   **Duration**.
+8. If a step fails and you stop early, still update the comment so the failed step
+   shows `❌` with its original start time and computed duration, and Step 6
+   becomes `🔄 Running` while you prepare the final verdict.
 
 ### Use this status legend in the comment
 
@@ -226,17 +235,23 @@ issues. Follow the same caution as the PII Protection section: scrub any local
 absolute paths before posting.
 
 ```powershell
+$step1StartTime = Get-Date
+$step1Started = $step1StartTime.ToString('HH:mm')
+$step1Duration = (Get-Date) - $step1StartTime
+$step1DurationText = "{0}m {1}s" -f [int]$step1Duration.TotalMinutes, $step1Duration.Seconds
+$step2StartTime = Get-Date
+$step2Started = $step2StartTime.ToString('HH:mm')
 $body = @"
 ## E2E Progress
 
-| Step | Status | Updated |
-|---|---|---|
-| 1. Fast-fail checks (build · link · `squad version`) | ✅ Passed | 09:14 |
-| 2. Create test repo(s) | 🔄 Running | 09:14 |
-| 3. `squad init` + file verification | ⏳ Pending | --:-- |
-| 4. Run sessions | ⏳ Pending | --:-- |
-| 5. Verify outcomes | ⏳ Pending | --:-- |
-| 6. Record verdicts + post final comment | ⏳ Pending | --:-- |
+| Step | Status | Started | Duration |
+|---|---|---|---|
+| 1. Fast-fail checks (build · link · `squad version`) | ✅ Passed | $step1Started | $step1DurationText |
+| 2. Create test repo(s) | 🔄 Running | $step2Started | -- |
+| 3. `squad init` + file verification | ⏳ Pending | --:-- | -- |
+| 4. Run sessions | ⏳ Pending | --:-- | -- |
+| 5. Verify outcomes | ⏳ Pending | --:-- | -- |
+| 6. Record verdicts + post final comment | ⏳ Pending | --:-- | -- |
 
 | Symbol | Meaning |
 |---|---|
@@ -258,20 +273,30 @@ When you reach Step 6, replace the tracking comment body entirely with the final
 structured verdict table. Do not post a separate final comment. The tracking
 comment is the final verdict comment.
 
+Include a summary row at the bottom of the final table showing the total elapsed
+time for the full run:
+
+```text
+| **Total** | — | HH:MM | Xm Ys |
+```
+
 ## Test Matrix Template
 
 Use this matrix when planning validation for a template change. Not every change
 needs every row — pick the scenarios relevant to your modification.
 
-| # | Scenario | What to verify |
-|---|----------|----------------|
-| 1 | Basic init + task | Templates applied, agent spawned, work produced |
-| 2 | Cross-branch persistence | State survives `git checkout` (if state-backend) |
-| 3 | Scribe behavior | Scribe commits to correct target |
-| 4 | PR cleanliness | Feature branch PR has no leaked state files |
-| 5 | Migration path | Existing squad picks up new template behavior |
-| 6 | Edge case: empty repo | Init works in repo with single commit |
-| 7 | Edge case: monorepo | Init works in subdirectory of monorepo |
+| # | Scenario | What to verify | Duration |
+|---|----------|----------------|----------|
+| 1 | Basic init + task | Templates applied, agent spawned, work produced | — |
+| 2 | Cross-branch persistence | State survives `git checkout` (if state-backend) | — |
+| 3 | Scribe behavior | Scribe commits to correct target | — |
+| 4 | PR cleanliness | Feature branch PR has no leaked state files | — |
+| 5 | Migration path | Existing squad picks up new template behavior | — |
+| 6 | Edge case: empty repo | Init works in repo with single commit | — |
+| 7 | Edge case: monorepo | Init works in subdirectory of monorepo | — |
+
+Note: Keep `—` during planning, then replace it with the actual elapsed time when
+recording the verdict for each scenario.
 
 ## Tips
 
