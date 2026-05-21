@@ -164,10 +164,47 @@ needs every row — pick the scenarios relevant to your modification.
 - **Clean up after.** Delete test repos when done. They accumulate fast.
 - **Windows users:** Use PowerShell. `Tee-Object` replaces `tee`. Paths use `\`.
 
+## Fast-Fail Rules
+
+These checks must pass before running any scenario. If any fail, stop
+immediately and report the failure — do **not** attempt workarounds or mark
+scenarios as SKIPPED.
+
+1. **Build must succeed.** Run `npm run build` from the repo root. A build
+   failure blocks all scenarios; report `BUILD_FAILED` and stop.
+2. **CLI must link successfully.** `cd packages/squad-cli && npm link` must exit
+   0. If it fails, report `LINK_FAILED` and stop.
+3. **`squad version` must run.** After linking, `squad version` must output a
+   version string. If not, report `CLI_NOT_FOUND` and stop.
+
+Do **not** mark scenarios as SKIPPED due to build or environment errors —
+that obscures real failures from reviewers. SKIPPED is only acceptable when the
+user explicitly requests it.
+
+## PII Protection — Mandatory
+
+When posting evidence to PR comments, issues, or any shared document:
+
+- **Never include absolute paths** that contain a local username (e.g.,
+  `C:\Users\username\...` or `/home/username/...`).
+- **Use `~` notation** for home-relative paths: `~/AppData/Local/Temp/...`
+  or `~/tmp/sq-test-1`.
+- **Scrub before posting.** Replace any occurrence of the local machine path
+  prefix (everything up to and including the username segment) with `~`.
+
+Example — ❌ wrong: `C:\Users\johndoe\AppData\Local\Temp\sq-e2e-pr1035\evidence`
+Example — ✅ right: `~/AppData/Local/Temp/sq-e2e-pr1035/evidence`
+
+This applies to all evidence tables, verdict files, and PR comments.
+
 ## Anti-Patterns
 
 - **Skipping the local build.** If you test with the published CLI, you're
   testing the old templates, not your changes.
+- **Posting absolute paths in PR comments.** Always scrub to `~`-relative paths
+  before sharing. See PII Protection above.
+- **Marking scenarios SKIPPED due to environment issues.** Fix the environment
+  (use fast-fail rules above) or report BUILD_FAILED — never silently skip.
 - **Testing only the happy path.** Template changes often break edge cases (empty
   repos, monorepos, cross-branch). Test at least 2-3 scenarios.
 - **Trusting session output alone.** Always verify git state independently —
