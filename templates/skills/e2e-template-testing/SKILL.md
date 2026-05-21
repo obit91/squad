@@ -332,11 +332,18 @@ When posting evidence to PR comments, issues, or any shared document:
   `C:\Users\username\...` or `/home/username/...`).
 - **Use `~` notation** for home-relative paths: `~/AppData/Local/Temp/...`
   or `~/tmp/sq-test-1`.
+- **Repo-internal paths use `<repo-root>` as the prefix.** If evidence files live
+  inside the repository (e.g. `.e2e/`, `tmp/`, or any subdirectory of the repo),
+  write them as `<repo-root>\.e2e\pr-1035\evidence` — not as `~\..\..\...` backward
+  navigation. `<repo-root>` is a clear, portable placeholder for the repository root
+  that does not expose the machine's directory layout.
 - **Scrub before posting.** Replace any occurrence of the local machine path
   prefix (everything up to and including the username segment) with `~`.
 
 Example — ❌ wrong: `C:\Users\johndoe\AppData\Local\Temp\sq-e2e-pr1035\evidence`
 Example — ✅ right: `~/AppData/Local/Temp/sq-e2e-pr1035/evidence`
+Example — ❌ wrong: `~\..\..\repos\squad\.e2e\pr-1035\evidence`
+Example — ✅ right: `<repo-root>\.e2e\pr-1035\evidence`
 
 This applies to all evidence tables, verdict files, and PR comments.
 
