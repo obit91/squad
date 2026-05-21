@@ -262,7 +262,8 @@ $body = @"
 | ⚠️ | Passed with caveats |
 "@
 $payloadPath = ".\gh-progress-comment.json"
-@{ body = $body } | ConvertTo-Json -Compress | Set-Content -Path $payloadPath -NoNewline
+# Use .NET WriteAllText with explicit UTF-8 to preserve emoji (Set-Content uses system codepage on PS 5.1)
+[System.IO.File]::WriteAllText($payloadPath, (@{ body = $body } | ConvertTo-Json -Compress), [System.Text.Encoding]::UTF8)
 Get-Content $payloadPath -Raw | gh api --method PATCH "repos/$env:REPO/issues/comments/$env:COMMENT_ID" --input -
 Remove-Item $payloadPath
 ```
