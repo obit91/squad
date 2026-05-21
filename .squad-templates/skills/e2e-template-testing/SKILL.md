@@ -229,12 +229,17 @@ Keep these six rows in this exact order every time you update the comment:
 ### Handle Windows comment bodies safely
 
 On Windows, avoid inline multi-line `--field body="..."` values. Use PowerShell
-heredoc syntax to build the full body, write the JSON payload to a temporary file
-inside the working repo, then pipe it with `--input -` to avoid shell escaping
-issues. Follow the same caution as the PII Protection section: scrub any local
+heredoc syntax to build the full body, then set `[Console]::OutputEncoding` to
+UTF-8 before piping to `gh api --input -`. This avoids both shell escaping issues
+and the codepage corruption that `Get-Content -Raw` or `Set-Content` introduce on
+PS 5.1. Follow the same caution as the PII Protection section: scrub any local
 absolute paths before posting.
 
 ```powershell
+# Must be set once per script; PS 5.1 defaults to the system codepage which
+# corrupts multi-byte characters (emoji, arrows, etc.) when piping to gh.
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
 $step1StartTime = Get-Date
 $step1Started = $step1StartTime.ToString('HH:mm')
 $step1Duration = (Get-Date) - $step1StartTime
@@ -261,11 +266,7 @@ $body = @"
 | ❌ | Failed |
 | ⚠️ | Passed with caveats |
 "@
-$payloadPath = ".\gh-progress-comment.json"
-# Use .NET WriteAllText with explicit UTF-8 to preserve emoji (Set-Content uses system codepage on PS 5.1)
-[System.IO.File]::WriteAllText($payloadPath, (@{ body = $body } | ConvertTo-Json -Compress), [System.Text.Encoding]::UTF8)
-Get-Content $payloadPath -Raw | gh api --method PATCH "repos/$env:REPO/issues/comments/$env:COMMENT_ID" --input -
-Remove-Item $payloadPath
+(@{ body = $body } | ConvertTo-Json -Compress) | gh api --method PATCH "repos/$env:REPO/issues/comments/$env:COMMENT_ID" --input -
 ```
 
 ### Replace the tracking comment with the final verdict
