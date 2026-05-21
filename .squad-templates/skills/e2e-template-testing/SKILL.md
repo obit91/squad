@@ -34,6 +34,54 @@ squad sessions against a locally-built CLI that includes your modified templates
 
 ## Workflow
 
+### Step 0 — Post initial tracking comment (**FIRST action — before anything else**)
+
+If `PR_NUMBER` and `REPO` are both set, **the absolute first thing you do** — before
+fast-fail checks, before building, before creating any repos — is post the initial
+tracking comment with all steps marked as `:hourglass_flowing_sand: Pending`.
+
+This gives reviewers immediate visibility that a run is in progress and what to expect.
+
+```powershell
+$runStart = Get-Date
+$body = @"
+## E2E Progress - PR $env:PR_NUMBER
+
+| Step | Status | Started | Duration |
+|---|---|---|---|
+| 1. Fast-fail checks (build :cd: link :cd: ``squad version``) | :hourglass_flowing_sand: Pending | --:-- | -- |
+| 2. Create test repo(s) | :hourglass_flowing_sand: Pending | --:-- | -- |
+| 3. ``squad init`` + file verification | :hourglass_flowing_sand: Pending | --:-- | -- |
+| 4. Run sessions | :hourglass_flowing_sand: Pending | --:-- | -- |
+| 5. Verify outcomes | :hourglass_flowing_sand: Pending | --:-- | -- |
+| 6. Record verdicts + post final comment | :hourglass_flowing_sand: Pending | --:-- | -- |
+
+| Symbol | Meaning |
+|---|---|
+| :hourglass_flowing_sand: | Not started |
+| :arrows_counterclockwise: | Running |
+| :white_check_mark: | Passed |
+| :x: | Failed |
+| :warning: | Passed with caveats |
+
+*Run started: $($runStart.ToString('HH:mm')) — all steps pending*
+"@
+
+$tmpFile = [System.IO.Path]::GetTempFileName()
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($tmpFile, $body, $utf8NoBom)
+$response = gh api "repos/$env:REPO/issues/$env:PR_NUMBER/comments" --method POST --field "body=@$tmpFile" | ConvertFrom-Json
+$env:COMMENT_ID = $response.id
+Remove-Item $tmpFile -Force
+Write-Host "Progress comment posted — ID: $($response.id)"
+```
+
+After posting, immediately update the comment to mark Step 1 as `:arrows_counterclockwise: Running` (do NOT wait — this is a two-step sequence: post all-pending, then immediately update to Step 1 running). Then proceed to Step 1.
+
+See **Progress Reporting** for the full comment lifecycle and update patterns.
+
+**⚠️ STOP before continuing:** If posting the comment fails (network error, auth error), abort the run and report the failure. Do not proceed silently without a tracking comment.
+
 ### Step 1 — Build the CLI from your branch
 
 ```bash
@@ -162,7 +210,13 @@ Use this section only when you are running E2E validation for an open PR. If
 in the PR thread. If either value is missing (for example, a local-only run),
 skip progress reporting silently.
 
-### Start the tracking comment before Step 1
+### Start the tracking comment (Step 0 — see Workflow above)
+
+The initial comment must be posted as **Step 0** — the absolute first action before
+anything else. See the Step 0 block in the Workflow section for the exact code.
+
+The subsections below describe how to **update** the comment at each step boundary.
+For reference, here is the initial all-pending comment body posted in Step 0:
 
 1. Post a PR comment before Step 1 begins:
 
