@@ -345,6 +345,59 @@ gh api --method PATCH "repos/$env:REPO/issues/comments/$env:COMMENT_ID" --field 
 Remove-Item $tmpFile -Force
 ```
 
+### Progressive Verdicting — Post After Each Scenario (Critical)
+
+**Do NOT batch all scenario results to the end.** This is the most common cause
+of lost verdicts. After each scenario completes, **immediately** PATCH the
+tracking comment with that scenario's result before moving to the next one.
+
+The pattern for each scenario:
+
+```powershell
+# After scenario N completes — PATCH immediately, before starting scenario N+1
+$scenarioNDuration = "{0}m {1}s" -f [int]((Get-Date) - $scenarioNStartTime).TotalMinutes, ((Get-Date) - $scenarioNStartTime).Seconds
+# ...rebuild the full comment body with this scenario updated to PASS/FAIL/PARTIAL...
+$tmpFile = [System.IO.Path]::GetTempFileName()
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($tmpFile, $body, $utf8NoBom)
+gh api --method PATCH "repos/$env:REPO/issues/comments/$env:COMMENT_ID" --field "body=@$tmpFile"
+Remove-Item $tmpFile -Force
+Write-Host "Scenario N verdict posted"
+```
+
+This guarantees that even if the AI model connection drops mid-run, the last
+successfully PATCHed state is always visible in the PR.
+
+### Agent Run Time Budget
+
+**⚠️ Critical: Background agents lose their AI model connection after ~15 minutes
+of continuous execution.** This is a platform limit, not a bug in your code.
+The verdict stage appears to "hang" because the connection drops right at the end
+when the agent has been running too long.
+
+**Per-agent scenario budget:**
+
+| Scenario type | Estimated time | Budget |
+|---|---|---|
+| Static checks only (file existence, grep, size) | 1-3 min | 4 per agent |
+| `squad init` + file verification (no copilot session) | 3-5 min | 3 per agent |
+| `squad init` + one `copilot --agent squad` session | 8-15 min | **1 per agent** |
+| Build + link + one copilot session | 12-20 min | **1 per agent** |
+
+**Rule: Limit yourself to 1 scenario that includes a `copilot --agent squad` session
+per agent run.** For a plan with multiple copilot-session scenarios, run them in
+separate agents — not in sequence within a single agent.
+
+If your scenario plan has N copilot-session scenarios, request N separate sims
+agents to run them in parallel (one scenario each). Static scenarios may be
+batched up to 4 per agent.
+
+**If you are running a scenario with a `copilot --agent squad` session:**
+- Run the build and link ONCE at the start (shared across all static scenarios)
+- Run the copilot session immediately after the repo is set up
+- PATCH the comment with the result immediately after the session ends
+- Then proceed to static scenarios while you still have connection budget
+
 ### Replace the tracking comment with the final verdict
 
 When you reach Step 6, replace the tracking comment body entirely with the final
@@ -357,6 +410,11 @@ time for the full run:
 ```text
 | **Total** | — | HH:MM | Xm Ys |
 ```
+
+**If the connection drops before Step 6:** The last progressive verdict PATCH
+already shows the partial state. The next agent run should read the existing
+comment, pick up where it left off, and add remaining scenario rows rather than
+starting fresh.
 
 ## Test Matrix Template
 
@@ -450,6 +508,13 @@ This applies to all evidence tables, verdict files, and PR comments.
 - **Trusting session output alone.** Always verify git state independently —
   agents can claim they wrote something without actually doing it.
 - **Reusing test repos.** Prior state bleeds into later tests. Start fresh.
+- **Batching all scenario verdicts to the end.** The AI model connection drops
+  after ~15 minutes. Always PATCH the comment after each scenario so partial
+  results are never lost. See Progressive Verdicting above.
+- **Running multiple `copilot --agent squad` sessions in one agent.** Each
+  session takes 5-15 minutes; combined with build time, you'll hit the ~15-minute
+  connection budget. One copilot session per agent — split into parallel agents
+  if your plan has more.
 
 ## Sandbox / Permission Notes
 
