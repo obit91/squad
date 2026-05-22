@@ -15,8 +15,9 @@
  *
  * Note: The Scribe section was extracted from squad.agent.md into this
  * standalone charter in PR #1035. The original test checked for
- * PRE-CHECK / HEALTH REPORT / GIT COMMIT task labels and an exact
- * 20480-byte threshold, which are not present in the new charter.
+ * PRE-CHECK / GIT COMMIT section labels (bold headers), which no longer
+ * exist in the new prose-based charter structure. HEALTH REPORT and the
+ * archival size thresholds (20KB / 50KB) are still present and tested below.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -83,6 +84,18 @@ describe('Scribe charter — task structure and HARD GATE enforcement', () => {
 
   it('HARD GATE enforcement is documented in the charter', () => {
     expect(content, 'HARD GATE label missing from charter').toContain('HARD GATE');
+  });
+
+  it('HEALTH REPORT emission is documented after archival runs', () => {
+    expect(content, 'HEALTH REPORT must be documented in charter').toContain('HEALTH REPORT');
+  });
+
+  it('Tier 1 archival threshold (20KB) is documented', () => {
+    expect(content, 'Tier 1 20KB archival threshold missing from charter').toContain('20KB');
+  });
+
+  it('Tier 2 archival threshold (50KB) is documented', () => {
+    expect(content, 'Tier 2 50KB archival threshold missing from charter').toContain('50KB');
   });
 
   it('"Never speak to the user." is the final numbered step', () => {
