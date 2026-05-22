@@ -94,7 +94,7 @@ cd packages/squad-cli
 npm link
 ```
 
-Verify: `squad version` should show the `-preview` tag.
+Verify: `squad version` outputs a version string (e.g., `0.9.7-preview` on a dev branch).
 
 ### Step 2 — Create a disposable test repo
 
