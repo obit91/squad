@@ -463,6 +463,10 @@ scenarios as SKIPPED.
    intact and npm will use it automatically.
 1. **Build must succeed.** Run `npm run build` from the repo root. A build
    failure blocks all scenarios; report `BUILD_FAILED` and stop.
+   - If the error is `tsc: not found` or similar missing-binary errors, run
+     `npm install` first to reconcile `node_modules` with the lock file, then
+     retry. This can happen after `git checkout HEAD -- package-lock.json`
+     restores the lock file without reinstalling.
 2. **CLI must link successfully.** `cd packages/squad-cli && npm link` must exit
    0. If it fails, report `LINK_FAILED` and stop.
 3. **`squad version` must run.** After linking, `squad version` must output a
