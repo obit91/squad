@@ -39,19 +39,19 @@ prompt: |
   SPAWN MANIFEST: {spawn_manifest}
 
   Tasks (in order):
-  0. PRE-CHECK: Run `state.health` when available. If state tools are unavailable,
+  0. PRE-CHECK: Run `squad_state_health` when available. If state tools are unavailable,
      stop without mutating files or git state.
   0b. PRE-CHECK: Read `decisions.md` and list `decisions/inbox` with state tools.
      Record measurements.
   1. DECISIONS ARCHIVE [HARD GATE]: If decisions.md >= 20480 bytes, archive entries older than 30 days NOW. If >= 51200 bytes, archive entries older than 7 days. Do not skip this step.
-  2. DECISION INBOX: Use `state.list` and `state.read` on `decisions/inbox`,
-     merge entries into `decisions.md` with `state.write`, delete processed inbox
-     entries with `state.delete`, and deduplicate.
-  3. ORCHESTRATION LOG: Write `orchestration-log/{timestamp}-{agent}.md` with `state.write` per agent. Use ISO 8601 UTC timestamp.
-  4. SESSION LOG: Write `log/{timestamp}-{topic}.md` with `state.write`. Brief. Use ISO 8601 UTC timestamp.
-  5. CROSS-AGENT: Append team updates to affected agents' `agents/{agent}/history.md` with `state.append`.
+  2. DECISION INBOX: Use `squad_state_list` and `squad_state_read` on `decisions/inbox`,
+     merge entries into `decisions.md` with `squad_state_write`, delete processed inbox
+     entries with `squad_state_delete`, and deduplicate.
+  3. ORCHESTRATION LOG: Write `orchestration-log/{timestamp}-{agent}.md` with `squad_state_write` per agent. Use ISO 8601 UTC timestamp.
+  4. SESSION LOG: Write `log/{timestamp}-{topic}.md` with `squad_state_write`. Brief. Use ISO 8601 UTC timestamp.
+  5. CROSS-AGENT: Append team updates to affected agents' `agents/{agent}/history.md` with `squad_state_append`.
   6. HISTORY SUMMARIZATION [HARD GATE]: If any history.md >= 15360 bytes (15KB), summarize now.
-  7. HEALTH REPORT: Log decisions.md before/after size, inbox count processed, history files summarized with `state.write` or `state.append`.
+  7. HEALTH REPORT: Log decisions.md before/after size, inbox count processed, history files summarized with `squad_state_write` or `squad_state_append`.
 
   Runtime state tools own persistence. Never switch branches, push note refs, reset
   `.squad/`, or commit mutable squad state from this prompt.

@@ -63,10 +63,10 @@ prompt: |
   ## State Protocol — Runtime State Tools
   Mutable squad state is owned by the runtime. You MUST use the `state.*` tools
   whenever they are available:
-  - `state.read` / `state.list` for decisions, history, logs, and inbox entries
-  - `state.write` / `state.append` for durable updates
-  - `state.delete` after Scribe merges inbox entries
-  - `state.health` when diagnosing backend availability
+  - `squad_state_read` / `squad_state_list` for decisions, history, logs, and inbox entries
+  - `squad_state_write` / `squad_state_append` for durable updates
+  - `squad_state_delete` after Scribe merges inbox entries
+  - `squad_state_health` when diagnosing backend availability
   - `squad_decide` for team-relevant decisions
 
   The runtime routes those calls to the configured backend (`{state_backend}`), including
@@ -74,8 +74,8 @@ prompt: |
   note refs, or write mutable `.squad/` state files by hand. Static config (charters,
   team.md, routing.md, skills) remains on disk and may be read with normal file tools.
 
-  Read `agents/{name}/history.md` with `state.read` when state tools are available; otherwise fall back to `.squad/agents/{name}/history.md`.
-  Read `decisions.md` with `state.read` when state tools are available; otherwise fall back to `.squad/decisions.md`.
+  Read `agents/{name}/history.md` with `squad_state_read` when state tools are available; otherwise fall back to `.squad/agents/{name}/history.md`.
+  Read `decisions.md` with `squad_state_read` when state tools are available; otherwise fall back to `.squad/decisions.md`.
   If .squad/identity/wisdom.md exists, read it before starting work.
   If .squad/identity/now.md exists, read it at spawn time.
   Check .copilot/skills/ for copilot-level skills (process, workflow, protocol).
@@ -110,10 +110,10 @@ prompt: |
   ⚠️ POST-WORK BUDGET: Spend at most 20 tool calls on post-work steps below.
   If you are running low on context or have used 60+ tool calls on primary work,
   skip post-work entirely -- Scribe handles it independently.
-  1. APPEND learnings with `state.append` to `agents/{name}/history.md`.
+  1. APPEND learnings with `squad_state_append` to `agents/{name}/history.md`.
      Include architecture decisions, patterns, user preferences, and key file paths.
   2. If you made a team-relevant decision, call `squad_decide`. If that tool is
-     unavailable, use `state.write` to `decisions/inbox/{name}-{brief-slug}.md`.
+     unavailable, use `squad_state_write` to `decisions/inbox/{name}-{brief-slug}.md`.
   3. If state tools are unavailable, skip post-work state persistence and report the
      backend/tool availability problem in your final summary.
   4. SKILL EXTRACTION is handled by Scribe — do NOT attempt it yourself.

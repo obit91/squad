@@ -26,12 +26,12 @@ const SERVER_INFO = {
 
 const MCP_TOOL_ALIASES: Record<string, string> = {
   squad_decide: 'squad_decide',
-  state_read: 'state.read',
-  state_write: 'state.write',
-  state_append: 'state.append',
-  state_delete: 'state.delete',
-  state_list: 'state.list',
-  state_health: 'state.health',
+  squad_state_read: 'squad_state_read',
+  squad_state_write: 'squad_state_write',
+  squad_state_append: 'squad_state_append',
+  squad_state_delete: 'squad_state_delete',
+  squad_state_list: 'squad_state_list',
+  squad_state_health: 'squad_state_health',
 };
 
 function parseObject(value: unknown): Record<string, unknown> {

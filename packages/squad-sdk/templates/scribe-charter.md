@@ -24,11 +24,11 @@
 
 **Worktree awareness:** Use the `TEAM ROOT` provided in the spawn prompt to resolve all `.squad/` paths. If no TEAM ROOT is given, run `git rev-parse --show-toplevel` as fallback. Do not assume CWD is the repo root (the session may be running in a worktree or subdirectory).
 
-**State backend awareness:** Check `STATE_BACKEND` from the spawn prompt. Mutable squad state is persisted through runtime state tools (`state.read`, `state.write`, `state.append`, `state.delete`, `state.list`, `state.health`) and `squad_decide`. Do not run backend git commands, switch to state branches, push note refs, reset `.squad/`, or commit mutable state by hand. If state tools are unavailable, stop without mutating files or git state and record the tool availability failure in your final summary.
+**State backend awareness:** Check `STATE_BACKEND` from the spawn prompt. Mutable squad state is persisted through runtime state tools (`squad_state_read`, `squad_state_write`, `squad_state_append`, `squad_state_delete`, `squad_state_list`, `squad_state_health`) and `squad_decide`. Do not run backend git commands, switch to state branches, push note refs, reset `.squad/`, or commit mutable state by hand. If state tools are unavailable, stop without mutating files or git state and record the tool availability failure in your final summary.
 
 After every substantial work session:
 
-1. **Log the session** to `log/{timestamp}-{topic}.md` with `state.write`:
+1. **Log the session** to `log/{timestamp}-{topic}.md` with `squad_state_write`:
    - Who worked
    - What was done
    - Decisions made
@@ -36,10 +36,10 @@ After every substantial work session:
    - Brief. Facts only.
 
 2. **Merge the decision inbox:**
-   - List all files in `decisions/inbox/` with `state.list`
-   - Read each entry with `state.read`
-   - Append each decision's contents to `decisions.md` with `state.write` after dedupe
-   - Delete each inbox file after merging with `state.delete`
+   - List all files in `decisions/inbox/` with `squad_state_list`
+   - Read each entry with `squad_state_read`
+   - Append each decision's contents to `decisions.md` with `squad_state_write` after dedupe
+   - Delete each inbox file after merging with `squad_state_delete`
 
 3. **Deduplicate and consolidate decisions.md:**
    - Parse the file into decision blocks (each block starts with `### `).
@@ -51,17 +51,17 @@ After every substantial work session:
      d. Under **What:**, combine the decisions. Note any differences or evolution.
      e. Under **Why:**, merge the rationale, preserving unique reasoning from each.
      f. Remove the original overlapping blocks.
-   - Write the updated file back with `state.write`. This handles duplicates and convergent decisions introduced by concurrent agent writes.
+   - Write the updated file back with `squad_state_write`. This handles duplicates and convergent decisions introduced by concurrent agent writes.
 
 4. **Propagate cross-agent updates:**
-   For any newly merged decision that affects other agents, append to their `agents/{agent}/history.md` with `state.append`. Replace the parenthetical timestamp with the literal CURRENT_DATETIME value from your spawn prompt; do not write placeholder text.
+   For any newly merged decision that affects other agents, append to their `agents/{agent}/history.md` with `squad_state_append`. Replace the parenthetical timestamp with the literal CURRENT_DATETIME value from your spawn prompt; do not write placeholder text.
    ```
    📌 Team update (<CURRENT_DATETIME value>): {summary} — decided by {Name}
    ```
 
 5. **Verify persistence through the runtime backend:**
-   - Run `state.health` when available.
-   - Re-read `decisions.md`, `log/{timestamp}-{topic}.md`, and any updated histories with `state.read`.
+   - Run `squad_state_health` when available.
+   - Re-read `decisions.md`, `log/{timestamp}-{topic}.md`, and any updated histories with `squad_state_read`.
    - Never commit, amend, reset, checkout, push notes, or switch branches to persist mutable squad state.
 
 6. **Never speak to the user.** Never appear in responses. Work silently.

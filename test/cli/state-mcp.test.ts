@@ -57,9 +57,9 @@ describe('state-mcp bridge', () => {
     const tools = resultAsRecord(messages[0]!)['tools'] as Array<{ name: string; inputSchema: Record<string, unknown> }>;
     const names = tools.map(tool => tool.name);
     expect(names).toContain('squad_decide');
-    expect(names).toContain('state_write');
-    expect(names).toContain('state_append');
-    expect(tools.find(tool => tool.name === 'state_write')?.inputSchema.required).toEqual(['key', 'content']);
+    expect(names).toContain('squad_state_write');
+    expect(names).toContain('squad_state_append');
+    expect(tools.find(tool => tool.name === 'squad_state_write')?.inputSchema.required).toEqual(['key', 'content']);
   });
 
   it('writes and reads two-layer state without mutating the worktree .squad files', async () => {
@@ -71,7 +71,7 @@ describe('state-mcp bridge', () => {
       id: 'write',
       method: 'tools/call',
       params: {
-        name: 'state_write',
+        name: 'squad_state_write',
         arguments: { key: 'decisions/inbox/mcp-proof.md', content: '# MCP proof\n' },
       },
     });
@@ -80,7 +80,7 @@ describe('state-mcp bridge', () => {
       id: 'read',
       method: 'tools/call',
       params: {
-        name: 'state_read',
+        name: 'squad_state_read',
         arguments: { key: 'decisions/inbox/mcp-proof.md' },
       },
     });

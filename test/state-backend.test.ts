@@ -511,8 +511,8 @@ describe('ToolRegistry state tools with git-native backend', () => {
     const adapter = new StateBackendStorageAdapter(backend, squadDir());
     const registry = new ToolRegistry(squadDir(), undefined, adapter);
 
-    const write = registry.getTool('state.write')!;
-    const read = registry.getTool('state.read')!;
+    const write = registry.getTool('squad_state_write')!;
+    const read = registry.getTool('squad_state_read')!;
     const result = await write.handler({ key: 'agents/data/history.md', content: '# Data\n\n## Learnings\n' });
 
     expect(result.resultType).toBe('success');
@@ -529,7 +529,7 @@ describe('ToolRegistry state tools with git-native backend', () => {
     const backend = new OrphanBranchBackend(TMP);
     const adapter = new StateBackendStorageAdapter(backend, squadDir());
     const registry = new ToolRegistry(squadDir(), undefined, adapter);
-    const list = registry.getTool('state.list')!;
+    const list = registry.getTool('squad_state_list')!;
 
     backend.write('.squadata/runtime-check.md', 'not a .squad prefix\n');
     expect(backend.read('.squadata/runtime-check.md')).toBe('not a .squad prefix\n');
@@ -544,9 +544,9 @@ describe('ToolRegistry state tools with git-native backend', () => {
     const backend = new OrphanBranchBackend(TMP);
     const adapter = new StateBackendStorageAdapter(backend, squadDir());
     const registry = new ToolRegistry(squadDir(), undefined, adapter);
-    const write = registry.getTool('state.write')!;
-    const append = registry.getTool('state.append')!;
-    const del = registry.getTool('state.delete')!;
+    const write = registry.getTool('squad_state_write')!;
+    const append = registry.getTool('squad_state_append')!;
+    const del = registry.getTool('squad_state_delete')!;
 
     await expect(write.handler({ key: 'config.json', content: '{}' })).resolves.toMatchObject({ resultType: 'failure' });
     await expect(append.handler({ key: 'team.md', content: 'bad' })).resolves.toMatchObject({ resultType: 'failure' });
@@ -561,10 +561,10 @@ describe('ToolRegistry state tools with git-native backend', () => {
     const backend = new OrphanBranchBackend(TMP);
     const adapter = new StateBackendStorageAdapter(backend, squadDir());
     const registry = new ToolRegistry(squadDir(), undefined, adapter);
-    const write = registry.getTool('state.write')!;
-    const append = registry.getTool('state.append')!;
-    const del = registry.getTool('state.delete')!;
-    const health = registry.getTool('state.health')!;
+    const write = registry.getTool('squad_state_write')!;
+    const append = registry.getTool('squad_state_append')!;
+    const del = registry.getTool('squad_state_delete')!;
+    const health = registry.getTool('squad_state_health')!;
 
     await expect(write.handler({ key: 'decisions.md', content: '# Decisions\n' })).resolves.toMatchObject({ resultType: 'success' });
     await expect(write.handler({ key: 'sessions/session-1/state.md', content: 'ok\n' })).resolves.toMatchObject({ resultType: 'success' });
@@ -620,12 +620,12 @@ describe('downloaded session replay regressions', () => {
     return {
       backend,
       registry,
-      stateWrite: registry.getTool('state.write')!,
-      stateAppend: registry.getTool('state.append')!,
-      stateRead: registry.getTool('state.read')!,
-      stateList: registry.getTool('state.list')!,
-      stateDelete: registry.getTool('state.delete')!,
-      stateHealth: registry.getTool('state.health')!,
+      stateWrite: registry.getTool('squad_state_write')!,
+      stateAppend: registry.getTool('squad_state_append')!,
+      stateRead: registry.getTool('squad_state_read')!,
+      stateList: registry.getTool('squad_state_list')!,
+      stateDelete: registry.getTool('squad_state_delete')!,
+      stateHealth: registry.getTool('squad_state_health')!,
       decide: registry.getTool('squad_decide')!,
     };
   }
@@ -731,10 +731,10 @@ describe('downloaded session replay regressions', () => {
       name: 'spawned agent history update',
       run: async (tools: Awaited<ReturnType<typeof createRuntimeTools>>) => {
         expect(await tools.stateWrite.handler({ key: 'agents/data/history.md', content: '# Data\n\n## Learnings\n' })).toMatchObject({ resultType: 'success' });
-        expect(await tools.stateAppend.handler({ key: 'agents/data/history.md', content: '\n### Replay\nSpawn prompt used state.append.\n' })).toMatchObject({ resultType: 'success' });
+        expect(await tools.stateAppend.handler({ key: 'agents/data/history.md', content: '\n### Replay\nSpawn prompt used squad_state_append.\n' })).toMatchObject({ resultType: 'success' });
         const history = await tools.stateRead.handler({ key: '.squad/agents/data/history.md' });
         expect(history.resultType).toBe('success');
-        expect(history.textResultForLlm).toContain('Spawn prompt used state.append');
+        expect(history.textResultForLlm).toContain('Spawn prompt used squad_state_append');
       },
     },
     {

@@ -628,7 +628,7 @@ export class ToolRegistry {
     });
 
     const stateRead = defineTool<StateReadRequest>({
-      name: 'state.read',
+      name: 'squad_state_read',
       description: 'Read mutable Squad state by key through the configured state backend. Keys are relative to .squad/; do not use shell git or direct file reads for mutable state.',
       parameters: {
         type: 'object',
@@ -664,7 +664,7 @@ export class ToolRegistry {
     });
 
     const stateWrite = defineTool<StateWriteRequest>({
-      name: 'state.write',
+      name: 'squad_state_write',
       description: 'Write mutable Squad state through the configured state backend. Always use this tool for mutable state when available. Keys are relative to .squad/; static config such as config.json, team.md, routing.md, charters, templates, and skills is not mutable state.',
       parameters: {
         type: 'object',
@@ -695,7 +695,7 @@ export class ToolRegistry {
     });
 
     const stateAppend = defineTool<StateAppendRequest>({
-      name: 'state.append',
+      name: 'squad_state_append',
       description: 'Append to mutable Squad state through the configured state backend. Always use this tool for mutable state when available. Keys are relative to .squad/; static config cannot be mutated through this tool.',
       parameters: {
         type: 'object',
@@ -726,7 +726,7 @@ export class ToolRegistry {
     });
 
     const stateDelete = defineTool<StateDeleteRequest>({
-      name: 'state.delete',
+      name: 'squad_state_delete',
       description: 'Delete mutable Squad state through the configured state backend. Always use this tool for mutable state when available. Keys are relative to .squad/; static config cannot be deleted through this tool.',
       parameters: {
         type: 'object',
@@ -756,7 +756,7 @@ export class ToolRegistry {
     });
 
     const stateList = defineTool<StateListRequest>({
-      name: 'state.list',
+      name: 'squad_state_list',
       description: 'List mutable Squad state entries through the configured state backend. Directories are relative to .squad/.',
       parameters: {
         type: 'object',
@@ -784,7 +784,7 @@ export class ToolRegistry {
     });
 
     const stateHealth = defineTool<Record<string, never>>({
-      name: 'state.health',
+      name: 'squad_state_health',
       description: 'Report the active Squad state storage layer so agents can verify they are using runtime-owned state instead of manual git/file choreography.',
       parameters: { type: 'object', properties: {} },
       handler: async () => ({
@@ -1164,12 +1164,12 @@ export class ToolRegistry {
     this.tools.set('squad_route', squadRoute);
     this.tools.set('squad_decide', squadDecide);
     this.tools.set('squad_memory', squadMemory);
-    this.tools.set('state.read', stateRead);
-    this.tools.set('state.write', stateWrite);
-    this.tools.set('state.append', stateAppend);
-    this.tools.set('state.delete', stateDelete);
-    this.tools.set('state.list', stateList);
-    this.tools.set('state.health', stateHealth);
+    this.tools.set('squad_state_read', stateRead);
+    this.tools.set('squad_state_write', stateWrite);
+    this.tools.set('squad_state_append', stateAppend);
+    this.tools.set('squad_state_delete', stateDelete);
+    this.tools.set('squad_state_list', stateList);
+    this.tools.set('squad_state_health', stateHealth);
     this.tools.set('memory.classify', memoryClassify);
     this.tools.set('memory.write', memoryWrite);
     this.tools.set('memory.search', memorySearch);
