@@ -92,11 +92,26 @@ describe('Scribe charter — task structure and HARD GATE enforcement', () => {
     ).toBe(true);
   });
 
-  it('charter forbids Scribe from committing mutable squad state', () => {
+  it('charter forbids Scribe from committing/pushing/branch-switching for mutable state', () => {
+    // The charter's prohibition sentence in scribe-charter.md reads:
+    //   "Never commit, amend, reset, checkout, push notes, or switch branches
+    //    to persist mutable squad state."
+    // Split into targeted assertions so a regression in any individual clause
+    // (e.g., dropping "push notes" or "switch branches") is caught — and so
+    // the assertion message matches what's actually verified. Use [\s\S]* so
+    // matches survive line wrapping or punctuation changes within the sentence.
     expect(
       content,
-      'Charter must explicitly forbid committing/pushing/branch-switching for mutable state',
-    ).toMatch(/Never commit[^.]*mutable squad state/);
+      'Charter must forbid committing mutable squad state',
+    ).toMatch(/Never commit[\s\S]*mutable squad state/);
+    expect(
+      content,
+      'Charter must forbid pushing note refs for mutable squad state',
+    ).toMatch(/push notes[\s\S]*mutable squad state/);
+    expect(
+      content,
+      'Charter must forbid switching branches for mutable squad state',
+    ).toMatch(/switch branches[\s\S]*mutable squad state/);
   });
 
   it('HARD GATE enforcement is documented in the charter', () => {
@@ -126,14 +141,24 @@ describe('Scribe charter — task structure and HARD GATE enforcement', () => {
     ).toContain('Never speak to the user');
   });
 
-  it('persistence-verification step precedes "Never speak to the user."', () => {
-    const verifyIndex = taskBlock.indexOf('Verify persistence');
-    const neverSpeakIndex = taskBlock.indexOf('Never speak to the user.');
-    expect(verifyIndex, 'Persistence-verification step not found in task block').toBeGreaterThan(-1);
-    expect(neverSpeakIndex, '"Never speak to the user." not found in task block').toBeGreaterThan(-1);
+  it('persistence-verification step precedes "Never speak to the user." in numbered step order', () => {
+    // Derive ordering from the filtered numbered-step list so the check
+    // enforces *numbered-step* order, not raw substring position in the block
+    // (which would pass if either phrase appeared earlier in non-step prose).
+    const numberedLines = taskBlock.split('\n').filter(l => l.trim().match(/^\d+\./));
+    const verifyStepIdx = numberedLines.findIndex(l => l.includes('Verify persistence'));
+    const neverSpeakStepIdx = numberedLines.findIndex(l => l.includes('Never speak to the user'));
     expect(
-      verifyIndex,
-      'Persistence-verification step must precede "Never speak to the user."',
-    ).toBeLessThan(neverSpeakIndex);
+      verifyStepIdx,
+      'Persistence-verification step not found on a numbered step line',
+    ).toBeGreaterThan(-1);
+    expect(
+      neverSpeakStepIdx,
+      '"Never speak to the user." not found on a numbered step line',
+    ).toBeGreaterThan(-1);
+    expect(
+      verifyStepIdx,
+      'Persistence-verification numbered step must precede "Never speak to the user." numbered step',
+    ).toBeLessThan(neverSpeakStepIdx);
   });
 });
