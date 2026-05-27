@@ -34,12 +34,14 @@ git init
 
 **✓ Validate:** Run `git status` — you should see "No commits yet".
 
-### 2. Install Squad and init with defaults
+### 2. Install Squad
 
 ```bash
 npm install -g @bradygaster/squad-cli
-squad init --preset default
+squad init
 ```
+
+> **⚡ Want to be up and running in under a second?** Use `squad init --preset default` to start with a fully-configured squad — complete with members, charters, and routing rules — ready to go immediately. The default `squad init` (without the flag) walks you through setup step by step, ideal if you prefer to build and customize your squad deliberately.
 
 **✓ Validate:** Check that `.squad/team.md` was created in your project.
 
